@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, BarChart3, Clock, Target, Wifi, WifiOff } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, BarChart3, Clock, Target, Wifi, WifiOff, Minus } from 'lucide-react';
 import './App.css';
 
 // Twelve Data API configuration
@@ -126,61 +126,61 @@ const waitForRateLimit = async () => {
 const makeApiRequest = async (symbol, interval) => {
   await waitForRateLimit();
   
-  const intervalMap = {
-    '1min': '1min',
-    '5min': '5min', 
-    '15min': '15min',
-    '30min': '30min',
+    const intervalMap = {
+      '1min': '1min',
+      '5min': '5min', 
+      '15min': '15min',
+      '30min': '30min',
     '60min': '1h',
     '4h': '4h',
     '1day': '1day',
     '1week': '1week',
     '1month': '1month'
-  };
-  
-  const twelveDataInterval = intervalMap[interval] || '1h';
-  const url = `${TWELVE_DATA_BASE_URL}/time_series?symbol=${symbol}&interval=${twelveDataInterval}&apikey=${TWELVE_DATA_API_KEY}&outputsize=100&format=JSON`;
-  
+    };
+    
+    const twelveDataInterval = intervalMap[interval] || '1h';
+    const url = `${TWELVE_DATA_BASE_URL}/time_series?symbol=${symbol}&interval=${twelveDataInterval}&apikey=${TWELVE_DATA_API_KEY}&outputsize=100&format=JSON`;
+    
   console.log('Making API request for:', symbol, interval);
-  
-  const response = await fetch(url);
-  
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
-  }
-  
-  const data = await response.json();
-  
-  if (data.status === 'error') {
-    throw new Error(`API Error: ${data.message}`);
-  }
-  
-  if (!data.values || data.values.length === 0) {
-    throw new Error(`No data available for symbol: ${symbol}`);
-  }
-  
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.status === 'error') {
+      throw new Error(`API Error: ${data.message}`);
+    }
+    
+    if (!data.values || data.values.length === 0) {
+      throw new Error(`No data available for symbol: ${symbol}`);
+    }
+    
   // Process data
-  const chartData = data.values
-    .sort((a, b) => new Date(a.datetime) - new Date(b.datetime))
-    .map(item => ({
-      time: new Date(item.datetime).toISOString(),
-      price: parseFloat(item.close),
-      high: parseFloat(item.high),
-      low: parseFloat(item.low),
-      open: parseFloat(item.open),
-      volume: parseInt(item.volume) || 0
-    }));
-  
+    const chartData = data.values
+      .sort((a, b) => new Date(a.datetime) - new Date(b.datetime))
+      .map(item => ({
+        time: new Date(item.datetime).toISOString(),
+        price: parseFloat(item.close),
+        high: parseFloat(item.high),
+        low: parseFloat(item.low),
+        open: parseFloat(item.open),
+        volume: parseInt(item.volume) || 0
+      }));
+    
   const result = {
-    data: chartData,
-    lastUpdated: new Date().toISOString(),
-    meta: {
-      symbol: data.meta?.symbol || symbol,
-      interval: data.meta?.interval || twelveDataInterval,
-      exchange: data.meta?.exchange || 'Unknown'
-    },
-    info: null
-  };
+      data: chartData,
+      lastUpdated: new Date().toISOString(),
+      meta: {
+        symbol: data.meta?.symbol || symbol,
+        interval: data.meta?.interval || twelveDataInterval,
+        exchange: data.meta?.exchange || 'Unknown'
+      },
+      info: null
+    };
   
   // Cache the result
   setCachedData(symbol, interval, result);
@@ -201,6 +201,151 @@ const calculateEMA = (data, period = 20) => {
   }
   
   return emaData;
+};
+
+const calculateRSI = (data, period = 14) => {
+  if (data.length < period + 1) return data.map(d => ({ ...d, rsi: 50 }));
+  
+  const rsiData = [...data];
+  
+  // Calculate price changes
+  const changes = [];
+  for (let i = 1; i < rsiData.length; i++) {
+    changes.push(rsiData[i].price - rsiData[i-1].price);
+  }
+  
+  // Calculate initial average gain and loss
+  let avgGain = 0;
+  let avgLoss = 0;
+  
+  for (let i = 0; i < period; i++) {
+    if (changes[i] > 0) avgGain += changes[i];
+    else avgLoss += Math.abs(changes[i]);
+  }
+  
+  avgGain /= period;
+  avgLoss /= period;
+  
+  // Calculate RSI for first period
+  let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+  let rsi = 100 - (100 / (1 + rs));
+  rsiData[period].rsi = rsi;
+  
+  // Calculate RSI for remaining periods using smoothed averages
+  for (let i = period + 1; i < rsiData.length; i++) {
+    const change = changes[i-1];
+    const gain = change > 0 ? change : 0;
+    const loss = change < 0 ? Math.abs(change) : 0;
+    
+    // Smoothed averages
+    avgGain = ((avgGain * (period - 1)) + gain) / period;
+    avgLoss = ((avgLoss * (period - 1)) + loss) / period;
+    
+    rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+    rsi = 100 - (100 / (1 + rs));
+    rsiData[i].rsi = rsi;
+  }
+  
+  // Fill initial periods with 50 (neutral RSI)
+  for (let i = 0; i < period; i++) {
+    rsiData[i].rsi = 50;
+  }
+  
+  return rsiData;
+};
+
+// Divergence detection function
+const detectDivergence = (data, lookback = 10) => {
+  if (data.length < lookback + 5) return { type: 'none', strength: 0 };
+  
+  const recent = data.slice(-lookback);
+  const prices = recent.map(d => d.price);
+  const rsis = recent.map(d => d.rsi);
+  
+  // Find peaks and troughs
+  const pricePeaks = [];
+  const priceTroughs = [];
+  const rsiPeaks = [];
+  const rsiTroughs = [];
+  
+  for (let i = 2; i < recent.length - 2; i++) {
+    // Price peaks
+    if (prices[i] > prices[i-1] && prices[i] > prices[i+1] && 
+        prices[i] > prices[i-2] && prices[i] > prices[i+2]) {
+      pricePeaks.push({ index: i, value: prices[i] });
+    }
+    // Price troughs
+    if (prices[i] < prices[i-1] && prices[i] < prices[i+1] && 
+        prices[i] < prices[i-2] && prices[i] < prices[i+2]) {
+      priceTroughs.push({ index: i, value: prices[i] });
+    }
+    // RSI peaks
+    if (rsis[i] > rsis[i-1] && rsis[i] > rsis[i+1] && 
+        rsis[i] > rsis[i-2] && rsis[i] > rsis[i+2]) {
+      rsiPeaks.push({ index: i, value: rsis[i] });
+    }
+    // RSI troughs
+    if (rsis[i] < rsis[i-1] && rsis[i] < rsis[i+1] && 
+        rsis[i] < rsis[i-2] && rsis[i] < rsis[i+2]) {
+      rsiTroughs.push({ index: i, value: rsis[i] });
+    }
+  }
+  
+  // Check for regular divergence (reversal signals)
+  if (pricePeaks.length >= 2 && rsiPeaks.length >= 2) {
+    const lastPricePeak = pricePeaks[pricePeaks.length - 1];
+    const prevPricePeak = pricePeaks[pricePeaks.length - 2];
+    const lastRSIPeak = rsiPeaks[rsiPeaks.length - 1];
+    const prevRSIPeak = rsiPeaks[rsiPeaks.length - 2];
+    
+    // Bearish divergence: Price makes higher high, RSI makes lower high
+    if (lastPricePeak.value > prevPricePeak.value && lastRSIPeak.value < prevRSIPeak.value) {
+      const strength = Math.abs(lastPricePeak.value - prevPricePeak.value) / prevPricePeak.value;
+      return { type: 'bearish_divergence', strength: Math.min(strength * 100, 100) };
+    }
+  }
+  
+  if (priceTroughs.length >= 2 && rsiTroughs.length >= 2) {
+    const lastPriceTrough = priceTroughs[priceTroughs.length - 1];
+    const prevPriceTrough = priceTroughs[priceTroughs.length - 2];
+    const lastRSITrough = rsiTroughs[rsiTroughs.length - 1];
+    const prevRSITrough = rsiTroughs[rsiTroughs.length - 2];
+    
+    // Bullish divergence: Price makes lower low, RSI makes higher low
+    if (lastPriceTrough.value < prevPriceTrough.value && lastRSITrough.value > prevRSITrough.value) {
+      const strength = Math.abs(lastPriceTrough.value - prevPriceTrough.value) / prevPriceTrough.value;
+      return { type: 'bullish_divergence', strength: Math.min(strength * 100, 100) };
+    }
+  }
+  
+  // Check for hidden divergence (continuation signals)
+  if (pricePeaks.length >= 2 && rsiPeaks.length >= 2) {
+    const lastPricePeak = pricePeaks[pricePeaks.length - 1];
+    const prevPricePeak = pricePeaks[pricePeaks.length - 2];
+    const lastRSIPeak = rsiPeaks[rsiPeaks.length - 1];
+    const prevRSIPeak = rsiPeaks[rsiPeaks.length - 2];
+    
+    // Hidden bearish divergence: Price makes lower high, RSI makes higher high
+    if (lastPricePeak.value < prevPricePeak.value && lastRSIPeak.value > prevRSIPeak.value) {
+      const strength = Math.abs(lastPricePeak.value - prevPricePeak.value) / prevPricePeak.value;
+      return { type: 'hidden_bearish_divergence', strength: Math.min(strength * 100, 100) };
+    }
+  }
+  
+  if (priceTroughs.length >= 2 && rsiTroughs.length >= 2) {
+    const lastPriceTrough = priceTroughs[priceTroughs.length - 1];
+    const prevPriceTrough = priceTroughs[priceTroughs.length - 2];
+    const lastRSITrough = rsiTroughs[rsiTroughs.length - 1];
+    const prevRSITrough = rsiTroughs[rsiTroughs.length - 2];
+    
+    // Hidden bullish divergence: Price makes higher low, RSI makes lower low
+    if (lastPriceTrough.value > prevPriceTrough.value && lastRSITrough.value < prevRSITrough.value) {
+      const strength = Math.abs(lastPriceTrough.value - prevPriceTrough.value) / prevPriceTrough.value;
+      return { type: 'hidden_bullish_divergence', strength: Math.min(strength * 100, 100) };
+    }
+  }
+  
+  return { type: 'none', strength: 0 };
 };
 
 const calculatePercentageChange = (data) => {
@@ -224,9 +369,196 @@ const calculatePercentageChange = (data) => {
   return { change, fromHigh: isFromHigh };
 };
 
-const getSignal = (price, ema) => {
-  if (price > ema) return { signal: 'BUY', color: '#10b981', icon: TrendingUp };
-  return { signal: 'SELL', color: '#ef4444', icon: TrendingDown };
+const getSignal = (price, ema, rsi, previousPrice, previousEMA, chartData) => {
+  if (!price || !ema || !rsi || !previousPrice || !previousEMA) {
+    if (price > ema) return { signal: 'BUY', color: '#10b981', icon: TrendingUp };
+    return { signal: 'SELL', color: '#ef4444', icon: TrendingDown };
+  }
+  
+  // Detect divergence
+  const divergence = detectDivergence(chartData || []);
+  
+  // Conservative price analysis (more strict thresholds)
+  const priceAboveEMA = price > ema;
+  const priceRising = price > previousPrice && (price - previousPrice) > (price * 0.001); // At least 0.1% increase
+  const priceFalling = price < previousPrice && (previousPrice - price) > (price * 0.001); // At least 0.1% decrease
+  const priceApproachingEMA = Math.abs(price - ema) < Math.abs(previousPrice - previousEMA) && 
+                              Math.abs(price - ema) < (price * 0.02); // Within 2% of EMA
+  
+  // Conservative EMA trend detection (more strict)
+  const emaRising = ema > previousEMA && (ema - previousEMA) > (ema * 0.002); // At least 0.2% increase
+  const emaFalling = ema < previousEMA && (previousEMA - ema) > (ema * 0.002); // At least 0.2% decrease
+  const emaFlat = Math.abs(ema - previousEMA) < (ema * 0.001); // Less than 0.1% change
+  
+  // Conservative RSI thresholds
+  const rsiOverbought = rsi > 75;  // Increased from 70 to 75
+  const rsiOversold = rsi < 25;   // Decreased from 30 to 25
+  const rsiNeutral = rsi >= 25 && rsi <= 75;
+  
+  // RSI + Price + EMA reversal logic with divergence
+  if (rsiOverbought && priceFalling) {
+    // RSI Overbought + Price falling = SELL signal
+    // Check for bearish divergence for stronger signal (Conservative: higher threshold)
+    if (divergence.type === 'bearish_divergence' && divergence.strength > 40) {
+      return { 
+        signal: 'STRONG SELL', 
+        color: '#dc2626', 
+        icon: TrendingDown,
+        description: `RSI Overbought + Price falling + Bearish Divergence (${divergence.strength.toFixed(1)}%)` 
+      };
+    } else if (priceAboveEMA) {
+      return { 
+        signal: 'SELL', 
+        color: '#ef4444', 
+        icon: TrendingDown,
+        description: 'RSI Overbought + Price falling + Above EMA (Strong SELL)' 
+      };
+    } else {
+      return { 
+        signal: 'WEAK SELL', 
+        color: '#f97316', 
+        icon: TrendingDown,
+        description: 'RSI Overbought + Price falling + Below EMA (Weak SELL)' 
+      };
+    }
+  } else if (rsiOversold && priceRising) {
+    // RSI Oversold + Price rising = BUY signal
+    // Check for bullish divergence for stronger signal (Conservative: higher threshold)
+    if (divergence.type === 'bullish_divergence' && divergence.strength > 40) {
+      return { 
+        signal: 'STRONG BUY', 
+        color: '#059669', 
+        icon: TrendingUp,
+        description: `RSI Oversold + Price rising + Bullish Divergence (${divergence.strength.toFixed(1)}%)` 
+      };
+    } else if (!priceAboveEMA) {
+      return { 
+        signal: 'BUY', 
+        color: '#10b981', 
+        icon: TrendingUp,
+        description: 'RSI Oversold + Price rising + Below EMA (Strong BUY)' 
+      };
+    } else {
+      return { 
+        signal: 'WEAK BUY', 
+        color: '#84cc16', 
+        icon: TrendingUp,
+        description: 'RSI Oversold + Price rising + Above EMA (Weak BUY)' 
+      };
+    }
+  } else if (rsiNeutral) {
+    // RSI Neutral zone - use EMA and price momentum with hidden divergence
+    // Check for hidden divergence (continuation signals) - Conservative: higher threshold
+    if (divergence.type === 'hidden_bullish_divergence' && divergence.strength > 35) {
+      return { 
+        signal: 'STRONG BUY', 
+        color: '#059669', 
+        icon: TrendingUp,
+        description: `Hidden Bullish Divergence + Above EMA (${divergence.strength.toFixed(1)}%)` 
+      };
+    } else if (divergence.type === 'hidden_bearish_divergence' && divergence.strength > 35) {
+      return { 
+        signal: 'STRONG SELL', 
+        color: '#dc2626', 
+        icon: TrendingDown,
+        description: `Hidden Bearish Divergence + Below EMA (${divergence.strength.toFixed(1)}%)` 
+      };
+    } else if (priceAboveEMA && priceRising && emaRising) {
+      return { 
+        signal: 'STRONG BUY', 
+        color: '#10b981', 
+        icon: TrendingUp,
+        description: 'Price & EMA rising + Above EMA (Strong Trend)' 
+      };
+    } else if (!priceAboveEMA && priceFalling && emaFalling) {
+      return { 
+        signal: 'STRONG SELL', 
+        color: '#ef4444', 
+        icon: TrendingDown,
+        description: 'Price & EMA falling + Below EMA (Strong Trend)' 
+      };
+    } else if (priceAboveEMA && priceRising && emaFlat) {
+      return { 
+        signal: 'BUY', 
+        color: '#10b981', 
+        icon: TrendingUp,
+        description: 'Price rising + Above EMA + EMA flat' 
+      };
+    } else if (!priceAboveEMA && priceFalling && emaFlat) {
+      return { 
+        signal: 'SELL', 
+        color: '#ef4444', 
+        icon: TrendingDown,
+        description: 'Price falling + Below EMA + EMA flat' 
+      };
+    } else if (priceAboveEMA && !priceRising && emaRising) {
+      return { 
+        signal: 'HOLD', 
+        color: '#f59e0b', 
+        icon: Minus,
+        description: 'Price above EMA but falling + EMA rising' 
+      };
+    } else if (!priceAboveEMA && priceRising && emaFalling) {
+      return { 
+        signal: 'WEAK BUY', 
+        color: '#84cc16', 
+        icon: TrendingUp,
+        description: 'Price rising + Below EMA + EMA falling' 
+      };
+    } else if (priceApproachingEMA && emaRising) {
+      return { 
+        signal: 'BUY', 
+        color: '#10b981', 
+        icon: TrendingUp,
+        description: 'Price approaching EMA + EMA rising' 
+      };
+    } else if (priceApproachingEMA && emaFalling) {
+      return { 
+        signal: 'SELL', 
+        color: '#ef4444', 
+        icon: TrendingDown,
+        description: 'Price approaching EMA + EMA falling' 
+      };
+    }
+  } else {
+    // Fallback to basic price vs EMA
+    if (priceAboveEMA && priceRising) {
+      return { 
+        signal: 'STRONG BUY', 
+        color: '#10b981', 
+        icon: TrendingUp,
+        description: 'Price above EMA and rising' 
+      };
+    } else if (!priceAboveEMA && priceFalling) {
+      return { 
+        signal: 'STRONG SELL', 
+        color: '#ef4444', 
+        icon: TrendingDown,
+        description: 'Price below EMA and falling' 
+      };
+    } else if (priceAboveEMA && !priceRising) {
+      return { 
+        signal: 'HOLD', 
+        color: '#f59e0b', 
+        icon: Minus,
+        description: 'Price above EMA but falling' 
+      };
+    } else if (!priceAboveEMA && priceRising) {
+      return { 
+        signal: 'WEAK BUY', 
+        color: '#84cc16', 
+        icon: TrendingUp,
+        description: 'Price below EMA but rising' 
+      };
+    }
+  }
+  
+  return { 
+    signal: 'HOLD', 
+    color: '#6b7280', 
+    icon: Minus,
+    description: 'Neutral signal' 
+  };
 };
 
 // Optimized Twelve Data API function
@@ -318,9 +650,10 @@ const TwelveDataPage = ({ onBack }) => {
       
       // Check if we have valid data
       if (result.data && result.data.length > 0) {
-        // Calculate EMA for the data
+        // Calculate EMA and RSI for the data
         const dataWithEMA = calculateEMA(result.data);
-        setChartData(dataWithEMA);
+        const dataWithRSI = calculateRSI(dataWithEMA);
+        setChartData(dataWithRSI);
         setLastUpdate(result.lastUpdated);
         const newCount = incrementApiCalls();
         setApiCalls(newCount);
@@ -356,7 +689,15 @@ const TwelveDataPage = ({ onBack }) => {
   };
 
   const currentData = chartData[chartData.length - 1];
-  const signal = currentData ? getSignal(currentData.price, currentData.ema20) : null;
+  const signal = currentData && chartData.length >= 2 ? 
+    getSignal(
+      currentData.price, 
+      currentData.ema20, 
+      currentData.rsi,
+      chartData[chartData.length - 2].price,
+      chartData[chartData.length - 2].ema20,
+      chartData
+    ) : null;
   const percentageData = calculatePercentageChange(chartData);
 
   // Calculate better Y-axis domain for better comparison
@@ -405,14 +746,14 @@ const TwelveDataPage = ({ onBack }) => {
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-        hour12: false
+        hour12: false 
       });
     } else if (interval === '4h') {
       return date.toLocaleDateString('en-US', { 
         month: 'short', 
         day: 'numeric',
         hour: '2-digit',
-        hour12: false
+        hour12: false 
       });
     } else if (interval === '1day') {
       return date.toLocaleDateString('en-US', { 
@@ -472,11 +813,11 @@ const TwelveDataPage = ({ onBack }) => {
     <div className="app">
       <header className="header glass-header">
         <div className="header-content">
-          <div className="header-top">
+            <div className="header-top">
             <h1 className="title">
-              <BarChart3 className="title-icon" />
+                <BarChart3 className="title-icon" />
               ANALIKE
-            </h1>
+              </h1>
             <div className="header-status-bar">
               <div className="twelve-data-status-item">
                 <span className="status-dot online"></span>
@@ -489,7 +830,7 @@ const TwelveDataPage = ({ onBack }) => {
               <div className="twelve-data-status-item">
                 <span className="status-dot" style={{ backgroundColor: '#8b5cf6' }}></span>
                 <span>Twelve Data API</span>
-              </div>
+            </div>
               <button 
                 onClick={() => {
                   const newCount = resetApiCalls();
@@ -500,9 +841,22 @@ const TwelveDataPage = ({ onBack }) => {
               >
                 Reset
               </button>
-            </div>
           </div>
-          <p className="subtitle">Analytical stock data with EMA20 technical analysis</p>
+          </div>
+          <p className="subtitle">Analytical stock and BTC data with technical analysis</p>
+          <div className="conservative-mode-badge" style={{
+            display: 'inline-block',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            border: '1px solid rgba(59, 130, 246, 0.3)',
+            borderRadius: '12px',
+            padding: '4px 8px',
+            fontSize: '0.7rem',
+            fontWeight: '600',
+            color: '#3b82f6',
+            margin: '8px'
+          }}>
+            🛡️ Conservative Mode: RSI 25/75, Divergence 40%, Strict EMA
+          </div>
           
           {/* <div className="controls glass-controls"> */}
             <div className="control-group">
@@ -601,6 +955,17 @@ const TwelveDataPage = ({ onBack }) => {
               <div className="stat-value">
                 {currentData ? formatPrice(currentData.price) : 'N/A'}
               </div>
+              {currentData && currentData.ema20 && (
+                <div className="stat-detail" style={{ 
+                  color: currentData.price > currentData.ema20 ? '#10b981' : '#ef4444',
+                  fontSize: '0.7rem',
+                  fontWeight: '500',
+                  marginTop: '0.25rem',
+                  opacity: 0.9
+                }}>
+                  {currentData.price > currentData.ema20 ? '🟢 Above EMA20' : '🔴 Below EMA20'}
+                </div>
+              )}
             </div>
 
             <div className="stat-card glass-card">
@@ -612,7 +977,6 @@ const TwelveDataPage = ({ onBack }) => {
                 {currentData ? formatPrice(currentData.ema20) : 'N/A'}
               </div>
             </div>
-
             <div className="stat-card glass-card">
               <div className="stat-header">
                 <TrendingUp className="stat-icon" />
@@ -628,11 +992,68 @@ const TwelveDataPage = ({ onBack }) => {
             <div className="stat-card glass-card">
               <div className="stat-header">
                 <BarChart3 className="stat-icon" />
+                <span className="stat-title">RSI</span>
+              </div>
+              <div 
+                className="stat-value"
+                style={{ 
+                  color: currentData?.rsi > 70 ? '#ef4444' : currentData?.rsi < 30 ? '#10b981' : '#8b5cf6'
+                }}
+              >
+                {currentData?.rsi?.toFixed(1) || 'N/A'}
+              </div>
+              <div className="stat-detail" style={{ 
+                color: currentData?.rsi > 75 ? '#ef4444' : currentData?.rsi < 25 ? '#10b981' : '#8b5cf6',
+                fontSize: '0.75rem',
+                fontWeight: '600',
+                marginTop: '0.25rem'
+              }}>
+                {currentData?.rsi > 75 ? 'Overbought (Conservative: >75)' : 
+                 currentData?.rsi < 25 ? 'Oversold (Conservative: <25)' : 'Neutral (25-75)'}
+              </div>
+              {signal && (signal.description.includes('Divergence') || signal.description.includes('divergence')) && (
+                <div className="stat-detail" style={{ 
+                  color: signal.color,
+                  fontSize: '0.65rem',
+                  fontWeight: '500',
+                  marginTop: '0.125rem',
+                  opacity: 0.8
+                }}>
+                  {signal.description.includes('Bearish') ? '🔴 Bearish Divergence' : 
+                   signal.description.includes('Bullish') ? '🟢 Bullish Divergence' : 
+                   signal.description.includes('Hidden') ? '🔍 Hidden Divergence' : ''}
+                </div>
+              )}
+            </div>
+
+            
+            <div className="stat-card glass-card">
+              <div className="stat-header">
+                <BarChart3 className="stat-icon" />
                 <span className="stat-title">Signal</span>
               </div>
               <div className="stat-value" style={{ color: signal?.color }}>
                 {signal ? signal.signal : 'N/A'}
               </div>
+              {signal && (
+                <div className="stat-detail" style={{ 
+                  color: signal.color,
+                  fontSize: '0.7rem',
+                  fontWeight: '500',
+                  marginTop: '0.25rem',
+                  opacity: 0.9
+                }}>
+                  {signal.signal === 'STRONG BUY' ? 
+                    (signal.description.includes('Divergence') ? '🟢 Strong Buy - RSI <25 + Price Up + Divergence' : '🟢 Strong Buy - Price+EMA Up + Above EMA') :
+                   signal.signal === 'BUY' ? '🟢 Buy - RSI <25 + Price Up + Below EMA' :
+                   signal.signal === 'WEAK BUY' ? '🟡 Weak Buy - RSI <25 + Price Up + Above EMA' :
+                   signal.signal === 'STRONG SELL' ? 
+                    (signal.description.includes('Divergence') ? '🔴 Strong Sell - RSI >75 + Price Down + Divergence' : '🔴 Strong Sell - Price+EMA Down + Below EMA') :
+                   signal.signal === 'SELL' ? '🔴 Sell - RSI >75 + Price Down + Above EMA' :
+                   signal.signal === 'WEAK SELL' ? '🟠 Weak Sell - RSI >75 + Price Down + Below EMA' :
+                   signal.signal === 'HOLD' ? '⚪ Hold - Not Clear' : '⚪ No Data'}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -640,7 +1061,7 @@ const TwelveDataPage = ({ onBack }) => {
         {hasData && (
           <div className="chart-container glass-chart">
             <div className="chart-header">
-              <h3 className="chart-title">{selectedSymbol} Stock Analysis</h3>
+              <h3 className="chart-title">{selectedSymbol} Analysis</h3>
               <div className="chart-legend">
                 <div className="legend-item">
                   <div className="legend-color price"></div>
@@ -693,40 +1114,39 @@ const TwelveDataPage = ({ onBack }) => {
               <Line 
                 type="monotone" 
                 dataKey="price" 
-                stroke="#3b82f6" 
+                stroke="#10b981" 
                 strokeWidth={1}
                 dot={false}
                 name="price"
-                activeDot={{ r: 5, stroke: '#3b82f6', strokeWidth: 2, fill: '#1f2937' }}
+                activeDot={{ r: 4, stroke: '#10b981', strokeWidth: 1, fill: '#1f2937' }}
                 connectNulls={false}
               />
               <Line 
                 type="monotone" 
                 dataKey="ema20" 
-                stroke="#f59e0b" 
+                stroke="#ef4444" 
                 strokeWidth={1}
-                strokeDasharray="12 6"
                 dot={false}
                 name="ema20"
-                activeDot={{ r: 5, stroke: '#f59e0b', strokeWidth: 2, fill: '#1f2937' }}
+                activeDot={{ r: 4, stroke: '#ef4444', strokeWidth: 1, fill: '#1f2937' }}
                 connectNulls={false}
               />
               <ReferenceLine 
                 y={currentData?.price} 
-                stroke={signal?.color} 
+                stroke="#f59e0b" 
                 strokeWidth={1}
-                strokeDasharray="5 5"
+                strokeDasharray="3 3"
                 label={{ 
                   value: `Current: $${currentData?.price?.toFixed(2)}`, 
                   position: "topRight",
-                  style: { fill: signal?.color, fontSize: '12px', fontWeight: 'bold' }
+                  style: { fill: '#f59e0b', fontSize: '12px', fontWeight: 'bold' }
                 }}
               />
               <ReferenceLine 
                 y={currentData?.ema20} 
                 stroke="#f59e0b" 
                 strokeWidth={1}
-                strokeDasharray="8 4"
+                strokeDasharray="4 4"
                 label={{ 
                   value: `EMA20: $${currentData?.ema20?.toFixed(2)}`, 
                   position: "bottomRight",
@@ -739,13 +1159,13 @@ const TwelveDataPage = ({ onBack }) => {
           <div className="chart-analysis">
             <div className="analysis-item">
               <span className="analysis-label">Current Price:</span>
-              <span className="analysis-value" style={{ color: '#3b82f6', fontWeight: 'bold' }}>
+              <span className="analysis-value" style={{ color: '#10b981', fontWeight: 'bold' }}>
                 ${currentData?.price?.toFixed(2) || 'N/A'}
               </span>
             </div>
             <div className="analysis-item">
               <span className="analysis-label">EMA 20:</span>
-              <span className="analysis-value" style={{ color: '#f59e0b', fontWeight: 'bold' }}>
+              <span className="analysis-value" style={{ color: '#ef4444', fontWeight: 'bold' }}>
                 ${currentData?.ema20?.toFixed(2) || 'N/A'}
               </span>
             </div>
@@ -783,89 +1203,6 @@ const TwelveDataPage = ({ onBack }) => {
           </div>
         )}
 
-        <div className="analysis-section glass-analysis">
-          <h3 className="section-title">📊 Analysis Summary</h3>
-          <div className="analysis-grid">
-            <div className="analysis-card">
-              <div className="analysis-card-header">
-                <Clock className="analysis-icon" />
-                <span className="analysis-card-title">Data Period</span>
-              </div>
-              <div className="analysis-card-content">
-                <div className="analysis-value-large">
-                  Last 100 {selectedInterval} intervals
-                </div>
-                <div className="analysis-detail">
-                  {chartData.length > 0 ? (
-                    `${formatTime(chartData[0].time)} - ${formatTime(chartData[chartData.length - 1].time)}`
-                  ) : 'N/A'}
-                </div>
-                <div className="analysis-subtitle">
-                  {selectedInterval === '1month' ? '~8+ years' : 
-                   selectedInterval === '1week' ? '~2+ years' : 
-                   selectedInterval === '1day' ? '~3+ months' : 
-                   selectedInterval === '4h' ? '~16+ days' : 
-                   selectedInterval === '60min' ? '~4+ days' : 
-                   '~2+ hours'}
-                </div>
-              </div>
-            </div>
-
-            <div className="analysis-card">
-              <div className="analysis-card-header">
-                <TrendingUp className="analysis-icon" />
-                <span className="analysis-card-title">Price vs EMA 20</span>
-              </div>
-              <div className="analysis-card-content">
-                <div className={`analysis-value-large ${currentData?.price > currentData?.ema20 ? 'positive' : 'negative'}`}>
-                  {currentData?.price > currentData?.ema20 ? 'Above EMA 20' : 'Below EMA 20'}
-                </div>
-                <div className="analysis-detail">
-                  Current: ${currentData?.price?.toFixed(2)} | EMA: ${currentData?.ema20?.toFixed(2)}
-                </div>
-                <div className="analysis-subtitle">
-                  {currentData?.price > currentData?.ema20 ? '🟢 Bullish Signal' : '🔴 Bearish Signal'}
-                </div>
-              </div>
-            </div>
-
-            <div className="analysis-card">
-              <div className="analysis-card-header">
-                <BarChart3 className="analysis-icon" />
-                <span className="analysis-card-title">Price Change</span>
-              </div>
-              <div className="analysis-card-content">
-                <div className={`analysis-value-large ${percentageData.change >= 0 ? 'positive' : 'negative'}`}>
-                  {percentageData.change >= 0 ? '+' : ''}{percentageData.change.toFixed(2)}%
-                </div>
-                <div className="analysis-detail">
-                  From recent {percentageData.fromHigh ? 'high' : 'low'}
-                </div>
-                <div className="analysis-subtitle">
-                  {percentageData.change >= 0 ? '📈 Upward Trend' : '📉 Downward Trend'}
-                </div>
-              </div>
-            </div>
-
-            <div className="analysis-card">
-              <div className="analysis-card-header">
-                <Target className="analysis-icon" />
-                <span className="analysis-card-title">Technical Signal</span>
-              </div>
-              <div className="analysis-card-content">
-                <div className={`analysis-value-large ${currentData?.price > currentData?.ema20 ? 'positive' : 'negative'}`}>
-                  {currentData?.price > currentData?.ema20 ? 'BUY' : 'SELL'}
-                </div>
-                <div className="analysis-detail">
-                  Based on EMA 20 crossover
-                </div>
-                <div className="analysis-subtitle">
-                  {currentData?.price > currentData?.ema20 ? '🟢 Strong Buy' : '🔴 Strong Sell'}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </main>
     </div>
   );
