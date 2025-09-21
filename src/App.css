@@ -1047,7 +1047,8 @@ body {
   }
   
   .chart-container {
-    padding: 0.75rem 0.25rem;
+    padding: var(--spacing-md) var(--spacing-xs);
+    margin-bottom: var(--spacing-lg);
   }
   
   .title {
@@ -1454,11 +1455,12 @@ body {
   
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
-    gap: 0.75rem;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
   }
   
   .stat-card {
-    padding: 0.75rem;
+    padding: var(--spacing-md);
   }
   
   .stat-value {
@@ -1474,7 +1476,8 @@ body {
   }
   
   .chart-container {
-    padding: 1rem 0.5rem;
+    padding: var(--spacing-lg) var(--spacing-sm);
+    margin-bottom: var(--spacing-lg);
   }
   
   .chart-header {
@@ -1563,11 +1566,12 @@ body {
   
   .stats-grid {
     grid-template-columns: 1fr;
-    gap: 0.5rem;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-lg);
   }
   
   .stat-card {
-    padding: 0.5rem;
+    padding: var(--spacing-sm);
   }
   
   .stat-value {
