@@ -694,27 +694,27 @@ const TwelveDataPage = ({ onBack }) => {
                 type="monotone" 
                 dataKey="price" 
                 stroke="#3b82f6" 
-                strokeWidth={4}
+                strokeWidth={1}
                 dot={false}
                 name="price"
-                activeDot={{ r: 8, stroke: '#3b82f6', strokeWidth: 3, fill: '#1f2937' }}
+                activeDot={{ r: 5, stroke: '#3b82f6', strokeWidth: 2, fill: '#1f2937' }}
                 connectNulls={false}
               />
               <Line 
                 type="monotone" 
                 dataKey="ema20" 
                 stroke="#f59e0b" 
-                strokeWidth={4}
+                strokeWidth={1}
                 strokeDasharray="12 6"
                 dot={false}
                 name="ema20"
-                activeDot={{ r: 8, stroke: '#f59e0b', strokeWidth: 3, fill: '#1f2937' }}
+                activeDot={{ r: 5, stroke: '#f59e0b', strokeWidth: 2, fill: '#1f2937' }}
                 connectNulls={false}
               />
               <ReferenceLine 
                 y={currentData?.price} 
                 stroke={signal?.color} 
-                strokeWidth={2}
+                strokeWidth={1}
                 strokeDasharray="5 5"
                 label={{ 
                   value: `Current: $${currentData?.price?.toFixed(2)}`, 
@@ -725,7 +725,7 @@ const TwelveDataPage = ({ onBack }) => {
               <ReferenceLine 
                 y={currentData?.ema20} 
                 stroke="#f59e0b" 
-                strokeWidth={2}
+                strokeWidth={1}
                 strokeDasharray="8 4"
                 label={{ 
                   value: `EMA20: $${currentData?.ema20?.toFixed(2)}`, 
