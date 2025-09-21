@@ -818,6 +818,8 @@ const TwelveDataPage = ({ onBack }) => {
                 <BarChart3 className="title-icon" />
               ANALIKE
               </h1>
+              <p className="subtitle">Analytical stock and BTC data with technical analysis</p>
+
             <div className="header-status-bar">
               <div className="twelve-data-status-item">
                 <span className="status-dot online"></span>
@@ -843,7 +845,6 @@ const TwelveDataPage = ({ onBack }) => {
               </button>
           </div>
           </div>
-          <p className="subtitle">Analytical stock and BTC data with technical analysis</p>
           <div className="conservative-mode-badge" style={{
             display: 'inline-block',
             backgroundColor: 'rgba(59, 130, 246, 0.1)',
