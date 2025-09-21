@@ -14,9 +14,5 @@
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "env": {
-    "VITE_TWELVE_DATA_API_KEY": "@twelve_data_api_key",
-    "VITE_FINNHUB_API_KEY": "@finnhub_api_key"
-  }
+  ]
 }
