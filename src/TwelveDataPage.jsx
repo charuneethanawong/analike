@@ -191,7 +191,7 @@ const makeApiRequest = async (symbol, interval) => {
 // Data processing functions
 const calculateEMA = (data, period = 20) => {
   const multiplier = 2 / (period + 1);
-  const emaData = [...data];
+  const emaData = data.map(item => ({ ...item })); // Create deep copy of each object
   
   // Start with first price as initial EMA
   emaData[0].ema20 = data[0].price;
@@ -206,7 +206,7 @@ const calculateEMA = (data, period = 20) => {
 const calculateRSI = (data, period = 14) => {
   if (data.length < period + 1) return data.map(d => ({ ...d, rsi: 50 }));
   
-  const rsiData = [...data];
+  const rsiData = data.map(item => ({ ...item })); // Create deep copy of each object
   
   // Calculate price changes
   const changes = [];
@@ -369,37 +369,45 @@ const calculatePercentageChange = (data) => {
   return { change, fromHigh: isFromHigh };
 };
 
-const getSignal = (price, ema, rsi, previousPrice, previousEMA, chartData) => {
+const getSignal = (price, ema, rsi, previousPrice, previousEMA, chartData, mode = 'conservative') => {
   if (!price || !ema || !rsi || !previousPrice || !previousEMA) {
     if (price > ema) return { signal: 'BUY', color: '#10b981', icon: TrendingUp };
     return { signal: 'SELL', color: '#ef4444', icon: TrendingDown };
   }
   
+  // Get mode settings
+  const modeSettings = {
+    conservative: { rsiOverbought: 75, rsiOversold: 25, divergenceThreshold: 40 },
+    normal: { rsiOverbought: 70, rsiOversold: 30, divergenceThreshold: 30 }
+  };
+  
+  const settings = modeSettings[mode] || modeSettings.conservative;
+  
   // Detect divergence
   const divergence = detectDivergence(chartData || []);
   
-  // Conservative price analysis (more strict thresholds)
+  // Price analysis
   const priceAboveEMA = price > ema;
   const priceRising = price > previousPrice && (price - previousPrice) > (price * 0.001); // At least 0.1% increase
   const priceFalling = price < previousPrice && (previousPrice - price) > (price * 0.001); // At least 0.1% decrease
   const priceApproachingEMA = Math.abs(price - ema) < Math.abs(previousPrice - previousEMA) && 
                               Math.abs(price - ema) < (price * 0.02); // Within 2% of EMA
   
-  // Conservative EMA trend detection (more strict)
+  // EMA trend detection
   const emaRising = ema > previousEMA && (ema - previousEMA) > (ema * 0.002); // At least 0.2% increase
   const emaFalling = ema < previousEMA && (previousEMA - ema) > (ema * 0.002); // At least 0.2% decrease
   const emaFlat = Math.abs(ema - previousEMA) < (ema * 0.001); // Less than 0.1% change
   
-  // Conservative RSI thresholds
-  const rsiOverbought = rsi > 75;  // Increased from 70 to 75
-  const rsiOversold = rsi < 25;   // Decreased from 30 to 25
-  const rsiNeutral = rsi >= 25 && rsi <= 75;
+  // RSI thresholds based on selected mode
+  const rsiOverbought = rsi > settings.rsiOverbought;
+  const rsiOversold = rsi < settings.rsiOversold;
+  const rsiNeutral = rsi >= settings.rsiOversold && rsi <= settings.rsiOverbought;
   
   // RSI + Price + EMA reversal logic with divergence
   if (rsiOverbought && priceFalling) {
     // RSI Overbought + Price falling = SELL signal
-    // Check for bearish divergence for stronger signal (Conservative: higher threshold)
-    if (divergence.type === 'bearish_divergence' && divergence.strength > 40) {
+    // Check for bearish divergence for stronger signal
+    if (divergence.type === 'bearish_divergence' && divergence.strength > settings.divergenceThreshold) {
       return { 
         signal: 'STRONG SELL', 
         color: '#dc2626', 
@@ -423,8 +431,8 @@ const getSignal = (price, ema, rsi, previousPrice, previousEMA, chartData) => {
     }
   } else if (rsiOversold && priceRising) {
     // RSI Oversold + Price rising = BUY signal
-    // Check for bullish divergence for stronger signal (Conservative: higher threshold)
-    if (divergence.type === 'bullish_divergence' && divergence.strength > 40) {
+    // Check for bullish divergence for stronger signal
+    if (divergence.type === 'bullish_divergence' && divergence.strength > settings.divergenceThreshold) {
       return { 
         signal: 'STRONG BUY', 
         color: '#059669', 
@@ -448,15 +456,15 @@ const getSignal = (price, ema, rsi, previousPrice, previousEMA, chartData) => {
     }
   } else if (rsiNeutral) {
     // RSI Neutral zone - use EMA and price momentum with hidden divergence
-    // Check for hidden divergence (continuation signals) - Conservative: higher threshold
-    if (divergence.type === 'hidden_bullish_divergence' && divergence.strength > 35) {
+    // Check for hidden divergence (continuation signals)
+    if (divergence.type === 'hidden_bullish_divergence' && divergence.strength > settings.divergenceThreshold) {
       return { 
         signal: 'STRONG BUY', 
         color: '#059669', 
         icon: TrendingUp,
         description: `Hidden Bullish Divergence + Above EMA (${divergence.strength.toFixed(1)}%)` 
       };
-    } else if (divergence.type === 'hidden_bearish_divergence' && divergence.strength > 35) {
+    } else if (divergence.type === 'hidden_bearish_divergence' && divergence.strength > settings.divergenceThreshold) {
       return { 
         signal: 'STRONG SELL', 
         color: '#dc2626', 
@@ -581,8 +589,9 @@ const getTwelveDataData = async (symbol, interval = '1h') => {
 };
 
 const TwelveDataPage = ({ onBack }) => {
-  const [selectedSymbol, setSelectedSymbol] = useState('AAPL');
+  const [selectedSymbol, setSelectedSymbol] = useState('BTC/USD');
   const [selectedInterval, setSelectedInterval] = useState('60min');
+  const [selectedMode, setSelectedMode] = useState('conservative');
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -593,6 +602,16 @@ const TwelveDataPage = ({ onBack }) => {
   const [apiInfo, setApiInfo] = useState(null);
   const [cacheStatus, setCacheStatus] = useState('empty');
   const [lastCacheClear, setLastCacheClear] = useState(null);
+  const [modeUpdateTrigger, setModeUpdateTrigger] = useState(0);
+
+  // Recalculate signal when mode changes (if we have data)
+  useEffect(() => {
+    if (chartData.length > 0) {
+      // Force re-render by updating trigger state
+      setModeUpdateTrigger(prev => prev + 1);
+      console.log('Mode changed to:', selectedMode, '- Recalculating signal with existing data');
+    }
+  }, [selectedMode, chartData]);
 
   const symbols = [
     { value: 'AAPL', label: 'Apple (AAPL)', color: '#0071e3' },
@@ -603,6 +622,7 @@ const TwelveDataPage = ({ onBack }) => {
     { value: 'NVDA', label: 'NVIDIA (NVDA)', color: '#76b900' },
     { value: 'AMD', label: 'AMD (AMD)', color: '#ed1c24' },
     { value: 'BTC/USD', label: 'Bitcoin (BTC)', color: '#f7931a' },
+    { value: 'GOLD', label: 'Gold (GOLD)', color: '#ffd700' },
     { value: 'QQQ', label: 'NASDAQ 100 (QQQ)', color: '#8b5cf6' }
   ];
 
@@ -616,6 +636,25 @@ const TwelveDataPage = ({ onBack }) => {
     { value: '1day', label: '1 Day' },
     { value: '1week', label: '1 Week' },
     { value: '1month', label: '1 Month' }
+  ];
+
+  const analysisModes = [
+    { 
+      value: 'conservative', 
+      label: 'Conservative Mode', 
+      description: 'RSI 25/75, Divergence 40%, Strict EMA',
+      rsiOverbought: 75,
+      rsiOversold: 25,
+      divergenceThreshold: 40
+    },
+    { 
+      value: 'normal', 
+      label: 'Normal Mode', 
+      description: 'RSI 70/30, Divergence 30%, Standard EMA',
+      rsiOverbought: 70,
+      rsiOversold: 30,
+      divergenceThreshold: 30
+    }
   ];
 
   const fetchData = async () => {
@@ -696,8 +735,12 @@ const TwelveDataPage = ({ onBack }) => {
       currentData.rsi,
       chartData[chartData.length - 2].price,
       chartData[chartData.length - 2].ema20,
-      chartData
+      chartData,
+      selectedMode
     ) : null;
+  
+  // This will trigger re-calculation when mode changes
+  const signalKey = `${selectedMode}-${modeUpdateTrigger}`;
   const percentageData = calculatePercentageChange(chartData);
 
   // Calculate better Y-axis domain for better comparison
@@ -796,12 +839,61 @@ const TwelveDataPage = ({ onBack }) => {
 
   if (error) {
     return (
-      <div className="app">
-        <div className="error-container">
-          <div className="error-icon">⚠️</div>
-          <h2>Error Loading Data</h2>
-          <p>{error}</p>
-          <button onClick={fetchData} className="retry-button">
+      <div className="app" style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        minHeight: '100vh',
+        padding: '20px'
+      }}>
+        <div className="error-container" style={{
+          textAlign: 'center',
+          maxWidth: '500px',
+          width: '100%',
+          padding: '40px',
+          backgroundColor: 'rgba(17, 24, 39, 0.8)',
+          borderRadius: '16px',
+          border: '1px solid rgba(55, 65, 81, 0.3)',
+          backdropFilter: 'blur(10px)',
+          boxShadow: '0 25px 50px rgba(0, 0, 0, 0.3)'
+        }}>
+          <div className="error-icon" style={{ fontSize: '4rem', marginBottom: '20px' }}>⚠️</div>
+          <h2 style={{ 
+            color: '#f9fafb', 
+            marginBottom: '16px', 
+            fontSize: '1.5rem',
+            fontWeight: '600'
+          }}>Error Loading Data</h2>
+          <p style={{ 
+            color: '#d1d5db', 
+            marginBottom: '24px', 
+            fontSize: '1rem',
+            lineHeight: '1.5'
+          }}>{error}</p>
+          <button 
+            onClick={fetchData} 
+            className="retry-button"
+            style={{
+              backgroundColor: '#3b82f6',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '12px 24px',
+              fontSize: '1rem',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+            }}
+            onMouseOver={(e) => {
+              e.target.style.backgroundColor = '#2563eb';
+              e.target.style.transform = 'translateY(-2px)';
+            }}
+            onMouseOut={(e) => {
+              e.target.style.backgroundColor = '#3b82f6';
+              e.target.style.transform = 'translateY(0)';
+            }}
+          >
             Try Again
           </button>
         </div>
@@ -845,18 +937,18 @@ const TwelveDataPage = ({ onBack }) => {
               </button>
           </div>
           </div>
-          <div className="conservative-mode-badge" style={{
+          <div className="mode-badge" style={{
             display: 'inline-block',
-            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-            border: '1px solid rgba(59, 130, 246, 0.3)',
+            backgroundColor: selectedMode === 'conservative' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+            border: selectedMode === 'conservative' ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid rgba(16, 185, 129, 0.3)',
             borderRadius: '12px',
             padding: '4px 8px',
             fontSize: '0.7rem',
             fontWeight: '600',
-            color: '#3b82f6',
+            color: selectedMode === 'conservative' ? '#3b82f6' : '#10b981',
             margin: '8px'
           }}>
-            🛡️ Conservative Mode: RSI 25/75, Divergence 40%, Strict EMA
+            {selectedMode === 'conservative' ? '🛡️' : '⚡'} {analysisModes.find(m => m.value === selectedMode)?.label}: {analysisModes.find(m => m.value === selectedMode)?.description}
           </div>
           
           {/* <div className="controls glass-controls"> */}
@@ -882,6 +974,18 @@ const TwelveDataPage = ({ onBack }) => {
                 {intervals.map(interval => (
                   <option key={interval.value} value={interval.value}>
                     {interval.label}
+                  </option>
+                ))}
+              </select>
+              <select 
+                value={selectedMode} 
+                onChange={(e) => setSelectedMode(e.target.value)}
+                className="control-select"
+                disabled={loading}
+              >
+                {analysisModes.map(mode => (
+                  <option key={mode.value} value={mode.value}>
+                    {mode.label}
                   </option>
                 ))}
               </select>
@@ -990,7 +1094,7 @@ const TwelveDataPage = ({ onBack }) => {
               </div>
             </div>
 
-            <div className="stat-card glass-card">
+            <div className="stat-card glass-card" key={`rsi-${signalKey}`}>
               <div className="stat-header">
                 <BarChart3 className="stat-icon" />
                 <span className="stat-title">RSI</span>
@@ -998,19 +1102,20 @@ const TwelveDataPage = ({ onBack }) => {
               <div 
                 className="stat-value"
                 style={{ 
-                  color: currentData?.rsi > 70 ? '#ef4444' : currentData?.rsi < 30 ? '#10b981' : '#8b5cf6'
+                  color: currentData?.rsi > (selectedMode === 'conservative' ? 75 : 70) ? '#ef4444' : currentData?.rsi < (selectedMode === 'conservative' ? 25 : 30) ? '#10b981' : '#8b5cf6'
                 }}
               >
                 {currentData?.rsi?.toFixed(1) || 'N/A'}
               </div>
               <div className="stat-detail" style={{ 
-                color: currentData?.rsi > 75 ? '#ef4444' : currentData?.rsi < 25 ? '#10b981' : '#8b5cf6',
+                color: currentData?.rsi > (selectedMode === 'conservative' ? 75 : 70) ? '#ef4444' : currentData?.rsi < (selectedMode === 'conservative' ? 25 : 30) ? '#10b981' : '#8b5cf6',
                 fontSize: '0.75rem',
                 fontWeight: '600',
                 marginTop: '0.25rem'
               }}>
-                {currentData?.rsi > 75 ? 'Overbought (Conservative: >75)' : 
-                 currentData?.rsi < 25 ? 'Oversold (Conservative: <25)' : 'Neutral (25-75)'}
+                {currentData?.rsi > (selectedMode === 'conservative' ? 75 : 70) ? `Overbought (${selectedMode === 'conservative' ? 'Conservative: >75' : 'Normal: >70'})` : 
+                 currentData?.rsi < (selectedMode === 'conservative' ? 25 : 30) ? `Oversold (${selectedMode === 'conservative' ? 'Conservative: <25' : 'Normal: <30'})` : 
+                 `Neutral (${selectedMode === 'conservative' ? '25-75' : '30-70'})`}
               </div>
               {signal && (signal.description.includes('Divergence') || signal.description.includes('divergence')) && (
                 <div className="stat-detail" style={{ 
@@ -1028,7 +1133,7 @@ const TwelveDataPage = ({ onBack }) => {
             </div>
 
             
-            <div className="stat-card glass-card">
+            <div className="stat-card glass-card" key={signalKey}>
               <div className="stat-header">
                 <BarChart3 className="stat-icon" />
                 <span className="stat-title">Signal</span>
