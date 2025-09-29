@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, BarChart3, Clock, Target, Wifi, WifiOff, Minus } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, BarChart3, Clock, Target, Wifi, WifiOff, Minus, ChevronUp, ChevronDown, Menu, X } from 'lucide-react';
 import './App.css';
 
 // Twelve Data API configuration
@@ -607,6 +607,7 @@ const TwelveDataPage = ({ onBack }) => {
   const [lastSignal, setLastSignal] = useState(null);
   const [notificationPermission, setNotificationPermission] = useState(false);
   const [lastModeCheck, setLastModeCheck] = useState(null);
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
 
   // Recalculate signal when mode changes (if we have data)
   useEffect(() => {
@@ -1134,7 +1135,7 @@ const TwelveDataPage = ({ onBack }) => {
 
   return (
     <div className="app">
-      <header className="header glass-header">
+      <header className={`header glass-header ${headerCollapsed ? 'header-collapsed' : ''}`}>
         <div className="header-content">
             <div className="header-top">
             <h1 className="title">
@@ -1142,6 +1143,15 @@ const TwelveDataPage = ({ onBack }) => {
               ANALIKE
               </h1>
               <p className="subtitle">Analytical stock and BTC data with technical analysis</p>
+              
+              {/* Mobile Header Toggle Button */}
+              <button 
+                className="mobile-header-toggle"
+                onClick={() => setHeaderCollapsed(!headerCollapsed)}
+                aria-label={headerCollapsed ? 'Show header' : 'Hide header'}
+              >
+                {headerCollapsed ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
+              </button>
 
             <div className="header-status-bar">
               <div className="twelve-data-status-item">
@@ -1215,21 +1225,6 @@ const TwelveDataPage = ({ onBack }) => {
             </div>
           )}
           
-          {!notificationPermission && (
-            <div className="notification-warning" style={{
-              display: 'inline-block',
-              backgroundColor: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: '12px',
-              padding: '4px 8px',
-              fontSize: '0.7rem',
-              fontWeight: '600',
-              color: '#ef4444',
-              margin: '8px'
-            }}>
-              ℹ️ Notifications disabled - Auto Check will log to console
-            </div>
-          )}
           
           
           {/* <div className="controls glass-controls"> */}
@@ -1280,32 +1275,27 @@ const TwelveDataPage = ({ onBack }) => {
               <button 
                 onClick={() => {
                   if (!autoCheckEnabled) {
-                    // Request notification permission first if not granted
-                    if (!notificationPermission) {
-                      if ('Notification' in window) {
-                        console.log('Requesting notification permission...');
-                        Notification.requestPermission().then(permission => {
-                          console.log('Notification permission:', permission);
-                          setNotificationPermission(permission === 'granted');
-                          setAutoCheckEnabled(true);
-                          if (permission === 'granted') {
-                            // Show test notification
-                            sendNotification('Auto Check Enabled', 'BTC signal monitoring is now active!');
-                          } else {
-                            console.log('Notifications denied. Auto Check will work without notifications.');
-                          }
-                        }).catch(error => {
-                          console.error('Error requesting notification permission:', error);
-                          console.log('Auto Check will work without notifications.');
-                          setAutoCheckEnabled(true);
-                        });
-                      } else {
-                        console.log('This browser does not support notifications. Auto Check will work without notifications.');
-                        setAutoCheckEnabled(true);
-                      }
-                    } else {
-                      // Already have permission, just enable
-                      setAutoCheckEnabled(true);
+                    // Enable auto check immediately
+                    setAutoCheckEnabled(true);
+                    
+                    // Try to request notification permission (optional)
+                    if (!notificationPermission && 'Notification' in window) {
+                      console.log('Requesting notification permission...');
+                      Notification.requestPermission().then(permission => {
+                        console.log('Notification permission:', permission);
+                        setNotificationPermission(permission === 'granted');
+                        if (permission === 'granted') {
+                          // Show test notification
+                          sendNotification('Auto Check Enabled', 'BTC signal monitoring is now active!');
+                        } else {
+                          console.log('Notifications denied. Auto Check will work without notifications.');
+                        }
+                      }).catch(error => {
+                        console.error('Error requesting notification permission:', error);
+                        console.log('Auto Check will work without notifications.');
+                      });
+                    } else if (!('Notification' in window)) {
+                      console.log('This browser does not support notifications. Auto Check will work without notifications.');
                     }
                   } else {
                     // Disable auto check
@@ -1321,7 +1311,6 @@ const TwelveDataPage = ({ onBack }) => {
                 }}
               >
                 {autoCheckEnabled ? '🟢 Auto Check ON' : '⚪ Auto Check OFF'}
-                {!autoCheckEnabled && !notificationPermission && ' (Click to enable)'}
               </button>
             </div>
            
