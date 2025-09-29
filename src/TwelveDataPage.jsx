@@ -610,6 +610,8 @@ const TwelveDataPage = ({ onBack }) => {
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [notificationHistory, setNotificationHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [currentNotification, setCurrentNotification] = useState(null);
 
   // Recalculate signal when mode changes (if we have data)
   useEffect(() => {
@@ -760,27 +762,27 @@ const TwelveDataPage = ({ onBack }) => {
                 console.log(`BTC 4H Normal Signal: ${signal4hNormal.signal} - ${signal4hNormal.description}`);
               }
 
-              // Send notifications if permission granted
+              // Send notifications if permission granted (only for STRONG BUY, BUY, STRONG SELL, SELL)
               if (notificationPermission) {
-                if (signal1hConservativeChanged) {
+                if (signal1hConservativeChanged && !signal1hConservative.signal.includes('WEAK') && signal1hConservative.signal !== 'HOLD') {
                   sendNotification(
                     `BTC 1H Conservative Signal: ${signal1hConservative.signal}`,
                     signal1hConservative.description
                   );
                 }
-                if (signal1hNormalChanged) {
+                if (signal1hNormalChanged && !signal1hNormal.signal.includes('WEAK') && signal1hNormal.signal !== 'HOLD') {
                   sendNotification(
                     `BTC 1H Normal Signal: ${signal1hNormal.signal}`,
                     signal1hNormal.description
                   );
                 }
-                if (signal4hConservativeChanged) {
+                if (signal4hConservativeChanged && !signal4hConservative.signal.includes('WEAK') && signal4hConservative.signal !== 'HOLD') {
                   sendNotification(
                     `BTC 4H Conservative Signal: ${signal4hConservative.signal}`,
                     signal4hConservative.description
                   );
                 }
-                if (signal4hNormalChanged) {
+                if (signal4hNormalChanged && !signal4hNormal.signal.includes('WEAK') && signal4hNormal.signal !== 'HOLD') {
                   sendNotification(
                     `BTC 4H Normal Signal: ${signal4hNormal.signal}`,
                     signal4hNormal.description
@@ -851,7 +853,21 @@ const TwelveDataPage = ({ onBack }) => {
       return newHistory;
     });
 
-    if (notificationPermission && 'Notification' in window) {
+    // Check if mobile device
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      // Show modal notification for mobile
+      setCurrentNotification(notification);
+      setShowNotificationModal(true);
+      
+      // Auto close modal after 5 seconds
+      setTimeout(() => {
+        setShowNotificationModal(false);
+        setCurrentNotification(null);
+      }, 5000);
+    } else if (notificationPermission && 'Notification' in window) {
+      // Use browser notification for desktop
       new Notification(title, {
         body: body,
         icon: '/favicon.svg',
@@ -861,18 +877,9 @@ const TwelveDataPage = ({ onBack }) => {
     }
   };
 
-  // Handle mode change with notification
+  // Handle mode change
   const handleModeChange = (newMode) => {
     setSelectedMode(newMode);
-    
-    // Send immediate notification for mode change
-    const modeInfo = analysisModes.find(m => m.value === newMode);
-    if (modeInfo && notificationPermission) {
-      sendNotification(
-        `Mode Changed: ${modeInfo.label}`,
-        `${modeInfo.description} - Signal will be recalculated with new thresholds`
-      );
-    }
   };
 
   const symbols = [
@@ -1418,6 +1425,44 @@ const TwelveDataPage = ({ onBack }) => {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Mobile Notification Modal */}
+        {showNotificationModal && currentNotification && (
+          <div className="notification-modal-overlay">
+            <div className="notification-modal">
+              <div className="notification-modal-header">
+                <div className="notification-icon">🔔</div>
+                <button 
+                  onClick={() => {
+                    setShowNotificationModal(false);
+                    setCurrentNotification(null);
+                  }}
+                  className="notification-close-btn"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="notification-modal-content">
+                <h3 className="notification-modal-title">{currentNotification.title}</h3>
+                <p className="notification-modal-body">{currentNotification.body}</p>
+                <div className="notification-modal-time">
+                  {new Date(currentNotification.timestamp).toLocaleString()}
+                </div>
+              </div>
+              <div className="notification-modal-footer">
+                <button 
+                  onClick={() => {
+                    setShowNotificationModal(false);
+                    setCurrentNotification(null);
+                  }}
+                  className="notification-ok-btn"
+                >
+                  OK
+                </button>
+              </div>
             </div>
           </div>
         )}
