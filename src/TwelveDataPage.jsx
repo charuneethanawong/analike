@@ -603,6 +603,10 @@ const TwelveDataPage = ({ onBack }) => {
   const [cacheStatus, setCacheStatus] = useState('empty');
   const [lastCacheClear, setLastCacheClear] = useState(null);
   const [modeUpdateTrigger, setModeUpdateTrigger] = useState(0);
+  const [autoCheckEnabled, setAutoCheckEnabled] = useState(false);
+  const [lastSignal, setLastSignal] = useState(null);
+  const [notificationPermission, setNotificationPermission] = useState(false);
+  const [lastModeCheck, setLastModeCheck] = useState(null);
 
   // Recalculate signal when mode changes (if we have data)
   useEffect(() => {
@@ -610,8 +614,235 @@ const TwelveDataPage = ({ onBack }) => {
       // Force re-render by updating trigger state
       setModeUpdateTrigger(prev => prev + 1);
       console.log('Mode changed to:', selectedMode, '- Recalculating signal with existing data');
+      
+      // Send notification when mode changes
+      const modeInfo = analysisModes.find(m => m.value === selectedMode);
+      if (modeInfo && notificationPermission) {
+        sendNotification(
+          `Mode Changed: ${modeInfo.label}`,
+          `${modeInfo.description} - Signal recalculated with new thresholds`
+        );
+      }
     }
-  }, [selectedMode, chartData]);
+  }, [selectedMode, chartData, notificationPermission]);
+
+  // Auto-check BTC every 15 minutes for signal changes
+  useEffect(() => {
+    if (!autoCheckEnabled) return;
+
+    const checkBTCModes = async () => {
+      try {
+        console.log('Auto-checking BTC mode conditions...');
+        
+        // Check both 1H and 4H intervals
+        const [result1h, result4h] = await Promise.all([
+          getTwelveDataData('BTC/USD', '60min'),
+          getTwelveDataData('BTC/USD', '4h')
+        ]);
+
+        if (result1h.success && result4h.success) {
+          const data1h = result1h.data;
+          const data4h = result4h.data;
+
+          // Calculate indicators for both timeframes
+          const dataWithEMA1h = calculateEMA(data1h, 20);
+          const dataWithRSI1h = calculateRSI(dataWithEMA1h, 14);
+          const dataWithEMA4h = calculateEMA(data4h, 20);
+          const dataWithRSI4h = calculateRSI(dataWithEMA4h, 14);
+
+          // Get latest data
+          const latest1h = dataWithRSI1h[dataWithRSI1h.length - 1];
+          const latest4h = dataWithRSI4h[dataWithRSI4h.length - 1];
+
+          // Check Conservative Mode conditions (RSI 25/75)
+          const conservative1h = {
+            overbought: latest1h.rsi > 75,
+            oversold: latest1h.rsi < 25
+          };
+          const conservative4h = {
+            overbought: latest4h.rsi > 75,
+            oversold: latest4h.rsi < 25
+          };
+
+          // Check Normal Mode conditions (RSI 70/30)
+          const normal1h = {
+            overbought: latest1h.rsi > 70,
+            oversold: latest1h.rsi < 30
+          };
+          const normal4h = {
+            overbought: latest4h.rsi > 70,
+            oversold: latest4h.rsi < 30
+          };
+
+          // Calculate actual signals for both timeframes and modes
+          const signal1hConservative = getSignal(
+            latest1h.close,
+            latest1h.ema20,
+            latest1h.rsi,
+            dataWithRSI1h[dataWithRSI1h.length - 2]?.close,
+            dataWithRSI1h[dataWithRSI1h.length - 2]?.ema20,
+            dataWithRSI1h,
+            'conservative'
+          );
+
+          const signal1hNormal = getSignal(
+            latest1h.close,
+            latest1h.ema20,
+            latest1h.rsi,
+            dataWithRSI1h[dataWithRSI1h.length - 2]?.close,
+            dataWithRSI1h[dataWithRSI1h.length - 2]?.ema20,
+            dataWithRSI1h,
+            'normal'
+          );
+
+          const signal4hConservative = getSignal(
+            latest4h.close,
+            latest4h.ema20,
+            latest4h.rsi,
+            dataWithRSI4h[dataWithRSI4h.length - 2]?.close,
+            dataWithRSI4h[dataWithRSI4h.length - 2]?.ema20,
+            dataWithRSI4h,
+            'conservative'
+          );
+
+          const signal4hNormal = getSignal(
+            latest4h.close,
+            latest4h.ema20,
+            latest4h.rsi,
+            dataWithRSI4h[dataWithRSI4h.length - 2]?.close,
+            dataWithRSI4h[dataWithRSI4h.length - 2]?.ema20,
+            dataWithRSI4h,
+            'normal'
+          );
+
+          // Check for signal changes
+          const currentSignalStatus = {
+            '1H': {
+              conservative: signal1hConservative,
+              normal: signal1hNormal
+            },
+            '4H': {
+              conservative: signal4hConservative,
+              normal: signal4hNormal
+            },
+            timestamp: new Date().toISOString()
+          };
+
+          if (lastModeCheck) {
+            // Check for signal changes
+            const signal1hConservativeChanged = 
+              lastModeCheck['1H']?.conservative?.signal !== signal1hConservative.signal;
+            const signal1hNormalChanged = 
+              lastModeCheck['1H']?.normal?.signal !== signal1hNormal.signal;
+            const signal4hConservativeChanged = 
+              lastModeCheck['4H']?.conservative?.signal !== signal4hConservative.signal;
+            const signal4hNormalChanged = 
+              lastModeCheck['4H']?.normal?.signal !== signal4hNormal.signal;
+
+            if (signal1hConservativeChanged || signal1hNormalChanged || 
+                signal4hConservativeChanged || signal4hNormalChanged) {
+              console.log('Signal change detected:', currentSignalStatus);
+
+              // Always log signal changes to console
+              if (signal1hConservativeChanged) {
+                console.log(`BTC 1H Conservative Signal: ${signal1hConservative.signal} - ${signal1hConservative.description}`);
+              }
+              if (signal1hNormalChanged) {
+                console.log(`BTC 1H Normal Signal: ${signal1hNormal.signal} - ${signal1hNormal.description}`);
+              }
+              if (signal4hConservativeChanged) {
+                console.log(`BTC 4H Conservative Signal: ${signal4hConservative.signal} - ${signal4hConservative.description}`);
+              }
+              if (signal4hNormalChanged) {
+                console.log(`BTC 4H Normal Signal: ${signal4hNormal.signal} - ${signal4hNormal.description}`);
+              }
+
+              // Send notifications if permission granted
+              if (notificationPermission) {
+                if (signal1hConservativeChanged) {
+                  sendNotification(
+                    `BTC 1H Conservative Signal: ${signal1hConservative.signal}`,
+                    signal1hConservative.description
+                  );
+                }
+                if (signal1hNormalChanged) {
+                  sendNotification(
+                    `BTC 1H Normal Signal: ${signal1hNormal.signal}`,
+                    signal1hNormal.description
+                  );
+                }
+                if (signal4hConservativeChanged) {
+                  sendNotification(
+                    `BTC 4H Conservative Signal: ${signal4hConservative.signal}`,
+                    signal4hConservative.description
+                  );
+                }
+                if (signal4hNormalChanged) {
+                  sendNotification(
+                    `BTC 4H Normal Signal: ${signal4hNormal.signal}`,
+                    signal4hNormal.description
+                  );
+                }
+              }
+            }
+          }
+
+          setLastModeCheck(currentSignalStatus);
+        }
+      } catch (error) {
+        console.error('Auto-check error:', error);
+      }
+    };
+
+    // Run immediately
+    checkBTCModes();
+
+    // Then run every 15 minutes
+    const interval = setInterval(checkBTCModes, 15 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [autoCheckEnabled, lastModeCheck]);
+
+
+  // Request notification permission
+  useEffect(() => {
+    if ('Notification' in window) {
+      // Check current permission status
+      const currentPermission = Notification.permission;
+      setNotificationPermission(currentPermission === 'granted');
+      
+      if (currentPermission === 'granted') {
+        // Auto-enable auto check when notifications are already granted
+        setAutoCheckEnabled(true);
+      }
+    }
+  }, []);
+
+  // Send notification function
+  const sendNotification = (title, body) => {
+    if (notificationPermission && 'Notification' in window) {
+      new Notification(title, {
+        body: body,
+        icon: '/favicon.svg',
+        badge: '/favicon.svg',
+        tag: 'analike-notification' // Prevent duplicate notifications
+      });
+    }
+  };
+
+  // Handle mode change with notification
+  const handleModeChange = (newMode) => {
+    setSelectedMode(newMode);
+    
+    // Send immediate notification for mode change
+    const modeInfo = analysisModes.find(m => m.value === newMode);
+    if (modeInfo && notificationPermission) {
+      sendNotification(
+        `Mode Changed: ${modeInfo.label}`,
+        `${modeInfo.description} - Signal will be recalculated with new thresholds`
+      );
+    }
+  };
 
   const symbols = [
     { value: 'AAPL', label: 'Apple (AAPL)', color: '#0071e3' },
@@ -951,6 +1182,56 @@ const TwelveDataPage = ({ onBack }) => {
             {selectedMode === 'conservative' ? '🛡️' : '⚡'} {analysisModes.find(m => m.value === selectedMode)?.label}: {analysisModes.find(m => m.value === selectedMode)?.description}
           </div>
           
+          {autoCheckEnabled && (
+            <div className="auto-check-badge" style={{
+              display: 'inline-block',
+              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              borderRadius: '12px',
+              padding: '4px 8px',
+              fontSize: '0.7rem',
+              fontWeight: '600',
+              color: '#10b981',
+              margin: '8px'
+            }}>
+              🔔 Auto Check: BTC 1H & 4H signal changes every 15min
+              {notificationPermission ? ' ✅ Notifications ON' : ' 📝 Console Logs Only'}
+            </div>
+          )}
+          
+          {notificationPermission && (
+            <div className="notification-badge" style={{
+              display: 'inline-block',
+              backgroundColor: 'rgba(59, 130, 246, 0.1)',
+              border: '1px solid rgba(59, 130, 246, 0.3)',
+              borderRadius: '12px',
+              padding: '4px 8px',
+              fontSize: '0.7rem',
+              fontWeight: '600',
+              color: '#3b82f6',
+              margin: '8px'
+            }}>
+              🔔 Notifications: Signal changes for both modes
+            </div>
+          )}
+          
+          {!notificationPermission && (
+            <div className="notification-warning" style={{
+              display: 'inline-block',
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '12px',
+              padding: '4px 8px',
+              fontSize: '0.7rem',
+              fontWeight: '600',
+              color: '#ef4444',
+              margin: '8px'
+            }}>
+              ℹ️ Notifications disabled - Auto Check will log to console
+            </div>
+          )}
+          
+          
           {/* <div className="controls glass-controls"> */}
             <div className="control-group">
               <select 
@@ -979,7 +1260,7 @@ const TwelveDataPage = ({ onBack }) => {
               </select>
               <select 
                 value={selectedMode} 
-                onChange={(e) => setSelectedMode(e.target.value)}
+                onChange={(e) => handleModeChange(e.target.value)}
                 className="control-select"
                 disabled={loading}
               >
@@ -995,6 +1276,52 @@ const TwelveDataPage = ({ onBack }) => {
                 className="search-button"
               >
                 {loading ? 'Loading...' : apiCalls >= 800 ? 'Limit Reached' : 'Get Data'}
+              </button>
+              <button 
+                onClick={() => {
+                  if (!autoCheckEnabled) {
+                    // Request notification permission first if not granted
+                    if (!notificationPermission) {
+                      if ('Notification' in window) {
+                        console.log('Requesting notification permission...');
+                        Notification.requestPermission().then(permission => {
+                          console.log('Notification permission:', permission);
+                          setNotificationPermission(permission === 'granted');
+                          setAutoCheckEnabled(true);
+                          if (permission === 'granted') {
+                            // Show test notification
+                            sendNotification('Auto Check Enabled', 'BTC signal monitoring is now active!');
+                          } else {
+                            console.log('Notifications denied. Auto Check will work without notifications.');
+                          }
+                        }).catch(error => {
+                          console.error('Error requesting notification permission:', error);
+                          console.log('Auto Check will work without notifications.');
+                          setAutoCheckEnabled(true);
+                        });
+                      } else {
+                        console.log('This browser does not support notifications. Auto Check will work without notifications.');
+                        setAutoCheckEnabled(true);
+                      }
+                    } else {
+                      // Already have permission, just enable
+                      setAutoCheckEnabled(true);
+                    }
+                  } else {
+                    // Disable auto check
+                    setAutoCheckEnabled(false);
+                  }
+                }}
+                className={`search-button ${autoCheckEnabled ? 'active' : ''}`}
+                style={{
+                  backgroundColor: autoCheckEnabled ? '#10b981' : 'rgba(16, 185, 129, 0.1)',
+                  borderColor: autoCheckEnabled ? '#10b981' : '#10b981',
+                  color: autoCheckEnabled ? 'white' : '#10b981',
+                  cursor: 'pointer'
+                }}
+              >
+                {autoCheckEnabled ? '🟢 Auto Check ON' : '⚪ Auto Check OFF'}
+                {!autoCheckEnabled && !notificationPermission && ' (Click to enable)'}
               </button>
             </div>
            
