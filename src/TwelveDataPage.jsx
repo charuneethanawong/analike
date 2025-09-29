@@ -649,26 +649,11 @@ const TwelveDataPage = ({ onBack }) => {
           // Get latest data
           const latest1h = dataWithRSI1h[dataWithRSI1h.length - 1];
           const latest4h = dataWithRSI4h[dataWithRSI4h.length - 1];
-
-          // Check Conservative Mode conditions (RSI 25/75)
-          const conservative1h = {
-            overbought: latest1h.rsi > 75,
-            oversold: latest1h.rsi < 25
-          };
-          const conservative4h = {
-            overbought: latest4h.rsi > 75,
-            oversold: latest4h.rsi < 25
-          };
-
-          // Check Normal Mode conditions (RSI 70/30)
-          const normal1h = {
-            overbought: latest1h.rsi > 70,
-            oversold: latest1h.rsi < 30
-          };
-          const normal4h = {
-            overbought: latest4h.rsi > 70,
-            oversold: latest4h.rsi < 30
-          };
+          
+          console.log('📊 Latest data:', {
+            '1H': { close: latest1h.close, rsi: latest1h.rsi, ema: latest1h.ema20 },
+            '4H': { close: latest4h.close, rsi: latest4h.rsi, ema: latest4h.ema20 }
+          });
 
           // Calculate actual signals for both timeframes and modes
           const signal1hConservative = getSignal(
@@ -723,6 +708,13 @@ const TwelveDataPage = ({ onBack }) => {
             },
             timestamp: new Date().toISOString()
           };
+          
+          console.log('📈 Calculated signals:', {
+            '1H Conservative': signal1hConservative.signal,
+            '1H Normal': signal1hNormal.signal,
+            '4H Conservative': signal4hConservative.signal,
+            '4H Normal': signal4hNormal.signal
+          });
 
           if (lastModeCheck) {
             // Check for signal changes
@@ -754,31 +746,45 @@ const TwelveDataPage = ({ onBack }) => {
               }
 
               // Send notifications if permission granted (only for STRONG BUY, BUY, STRONG SELL, SELL)
+              console.log('🔔 Notification check:', { 
+                notificationPermission, 
+                signal1hConservative: { signal: signal1hConservative.signal, changed: signal1hConservativeChanged },
+                signal1hNormal: { signal: signal1hNormal.signal, changed: signal1hNormalChanged },
+                signal4hConservative: { signal: signal4hConservative.signal, changed: signal4hConservativeChanged },
+                signal4hNormal: { signal: signal4hNormal.signal, changed: signal4hNormalChanged }
+              });
+              
               if (notificationPermission) {
                 if (signal1hConservativeChanged && !signal1hConservative.signal.includes('WEAK') && signal1hConservative.signal !== 'HOLD') {
+                  console.log('🔔 Sending 1H Conservative notification:', signal1hConservative.signal);
                   sendNotification(
                     `BTC 1H Conservative Signal: ${signal1hConservative.signal}`,
                     signal1hConservative.description
                   );
                 }
                 if (signal1hNormalChanged && !signal1hNormal.signal.includes('WEAK') && signal1hNormal.signal !== 'HOLD') {
+                  console.log('🔔 Sending 1H Normal notification:', signal1hNormal.signal);
                   sendNotification(
                     `BTC 1H Normal Signal: ${signal1hNormal.signal}`,
                     signal1hNormal.description
                   );
                 }
                 if (signal4hConservativeChanged && !signal4hConservative.signal.includes('WEAK') && signal4hConservative.signal !== 'HOLD') {
+                  console.log('🔔 Sending 4H Conservative notification:', signal4hConservative.signal);
                   sendNotification(
                     `BTC 4H Conservative Signal: ${signal4hConservative.signal}`,
                     signal4hConservative.description
                   );
                 }
                 if (signal4hNormalChanged && !signal4hNormal.signal.includes('WEAK') && signal4hNormal.signal !== 'HOLD') {
+                  console.log('🔔 Sending 4H Normal notification:', signal4hNormal.signal);
                   sendNotification(
                     `BTC 4H Normal Signal: ${signal4hNormal.signal}`,
                     signal4hNormal.description
                   );
                 }
+              } else {
+                console.log('❌ No notification permission - notifications disabled');
               }
             }
           }
@@ -828,6 +834,8 @@ const TwelveDataPage = ({ onBack }) => {
 
   // Send notification function
   const sendNotification = (title, body) => {
+    console.log('🔔 sendNotification called:', { title, body });
+    
     // Add to history
     const notification = {
       id: Date.now(),
@@ -846,19 +854,25 @@ const TwelveDataPage = ({ onBack }) => {
 
     // Check if mobile device
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    console.log('📱 Device check:', { isMobile, userAgent: navigator.userAgent });
+    console.log('🔔 Notification permission:', { notificationPermission, hasNotification: 'Notification' in window });
     
     if (isMobile) {
       // Show modal notification for mobile
+      console.log('📱 Showing mobile modal for:', title);
       setCurrentNotification(notification);
       setShowNotificationModal(true);
     } else if (notificationPermission && 'Notification' in window) {
       // Use browser notification for desktop
+      console.log('🖥️ Showing browser notification for:', title);
       new Notification(title, {
         body: body,
         icon: '/favicon.svg',
         badge: '/favicon.svg',
         tag: 'analike-notification' // Prevent duplicate notifications
       });
+    } else {
+      console.log('❌ No notification method available');
     }
   };
 
