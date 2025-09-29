@@ -619,15 +619,6 @@ const TwelveDataPage = ({ onBack }) => {
       // Force re-render by updating trigger state
       setModeUpdateTrigger(prev => prev + 1);
       console.log('Mode changed to:', selectedMode, '- Recalculating signal with existing data');
-      
-      // Send notification when mode changes
-      const modeInfo = analysisModes.find(m => m.value === selectedMode);
-      if (modeInfo && notificationPermission) {
-        sendNotification(
-          `Mode Changed: ${modeInfo.label}`,
-          `${modeInfo.description} - Signal recalculated with new thresholds`
-        );
-      }
     }
   }, [selectedMode, chartData, notificationPermission]);
 
