@@ -860,12 +860,6 @@ const TwelveDataPage = ({ onBack }) => {
       // Show modal notification for mobile
       setCurrentNotification(notification);
       setShowNotificationModal(true);
-      
-      // Auto close modal after 5 seconds
-      setTimeout(() => {
-        setShowNotificationModal(false);
-        setCurrentNotification(null);
-      }, 5000);
     } else if (notificationPermission && 'Notification' in window) {
       // Use browser notification for desktop
       new Notification(title, {
