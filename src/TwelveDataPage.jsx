@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, BarChart3, Clock, Target, Wifi, WifiOff, Minus, ChevronUp, ChevronDown, Menu, X } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, BarChart3, Clock, Target, Wifi, WifiOff, Minus, ChevronUp, ChevronDown, Menu, X, History, Trash2 } from 'lucide-react';
 import './App.css';
 
 // Twelve Data API configuration
@@ -608,6 +608,8 @@ const TwelveDataPage = ({ onBack }) => {
   const [notificationPermission, setNotificationPermission] = useState(false);
   const [lastModeCheck, setLastModeCheck] = useState(null);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const [notificationHistory, setNotificationHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Recalculate signal when mode changes (if we have data)
   useEffect(() => {
@@ -805,6 +807,18 @@ const TwelveDataPage = ({ onBack }) => {
   }, [autoCheckEnabled, lastModeCheck]);
 
 
+  // Load notification history from localStorage
+  useEffect(() => {
+    const savedHistory = localStorage.getItem('analike_notification_history');
+    if (savedHistory) {
+      try {
+        setNotificationHistory(JSON.parse(savedHistory));
+      } catch (error) {
+        console.error('Error loading notification history:', error);
+      }
+    }
+  }, []);
+
   // Request notification permission
   useEffect(() => {
     if ('Notification' in window) {
@@ -821,6 +835,22 @@ const TwelveDataPage = ({ onBack }) => {
 
   // Send notification function
   const sendNotification = (title, body) => {
+    // Add to history
+    const notification = {
+      id: Date.now(),
+      title,
+      body,
+      timestamp: new Date().toISOString(),
+      type: 'signal_change'
+    };
+    
+    setNotificationHistory(prev => {
+      const newHistory = [notification, ...prev].slice(0, 50); // Keep last 50 notifications
+      // Save to localStorage
+      localStorage.setItem('analike_notification_history', JSON.stringify(newHistory));
+      return newHistory;
+    });
+
     if (notificationPermission && 'Notification' in window) {
       new Notification(title, {
         body: body,
@@ -1312,6 +1342,20 @@ const TwelveDataPage = ({ onBack }) => {
               >
                 {autoCheckEnabled ? '🟢 Auto Check ON' : '⚪ Auto Check OFF'}
               </button>
+              
+              <button 
+                onClick={() => setShowHistory(!showHistory)}
+                className="search-button"
+                style={{
+                  backgroundColor: showHistory ? '#8b5cf6' : 'rgba(139, 92, 246, 0.1)',
+                  borderColor: '#8b5cf6',
+                  color: showHistory ? 'white' : '#8b5cf6',
+                  cursor: 'pointer'
+                }}
+              >
+                <History size={16} style={{ marginRight: '4px' }} />
+                History ({notificationHistory.length})
+              </button>
             </div>
            
           {/* </div> */}
@@ -1324,6 +1368,56 @@ const TwelveDataPage = ({ onBack }) => {
             <div className="error-content">
               <span className="error-icon">⚠️</span>
               <span className="error-message">{error}</span>
+            </div>
+          </div>
+        )}
+
+        {showHistory && (
+          <div className="notification-history glass-card">
+            <div className="history-header">
+              <div className="history-actions">
+                <button 
+                  onClick={() => {
+                    setNotificationHistory([]);
+                    localStorage.removeItem('analike_notification_history');
+                  }}
+                  className="clear-history-btn"
+                  title="Clear History"
+                >
+                  <Trash2 size={16} />
+                </button>
+                <button 
+                  onClick={() => setShowHistory(false)}
+                  className="close-history-btn"
+                  title="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            
+            <div className="history-content">
+              {notificationHistory.length === 0 ? (
+                <div className="no-history">
+                  <History size={48} />
+                  <p>No notifications yet</p>
+                  <small>Signal changes will appear here</small>
+                </div>
+              ) : (
+                <div className="history-list">
+                  {notificationHistory.map((notification) => (
+                    <div key={notification.id} className="history-item">
+                      <div className="history-item-header">
+                        <span className="history-title">{notification.title}</span>
+                        <span className="history-time">
+                          {new Date(notification.timestamp).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="history-body">{notification.body}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
