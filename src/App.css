@@ -749,26 +749,6 @@ body {
   animation: slideInRight 0.6s ease-out 0.6s both;
 }
 
-.reset-api-button {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid #ef4444;
-  color: #ef4444;
-  padding: 0.2rem 0.4rem;
-  border-radius: 0.25rem;
-  cursor: pointer;
-  font-size: 0.7rem;
-  font-weight: 600;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-  animation: scaleIn 0.4s ease-out 1s both;
-}
-
-.reset-api-button:hover {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: #dc2626;
-  color: #dc2626;
-  transform: translateY(-1px);
-}
 
 .back-button {
   background: rgba(59, 130, 246, 0.1);
@@ -1206,10 +1186,6 @@ body {
     min-width: 70px;
   }
   
-  .reset-api-button {
-    font-size: 0.65rem;
-    padding: 0.15rem 0.3rem;
-  }
   
   .status-simple {
     flex-direction: column;
@@ -1620,10 +1596,6 @@ body {
     min-width: 60px;
   }
   
-  .reset-api-button {
-    font-size: 0.6rem;
-    padding: 0.1rem 0.25rem;
-  }
   
   .mobile-header-toggle {
     top: 0.25rem;
@@ -1986,4 +1958,454 @@ body {
     padding: 0.625rem 1.25rem;
     font-size: 0.875rem;
   }
+}
+
+/* All Symbols Signals Container */
+.symbols-signals-container {
+  margin: 2rem 0;
+}
+
+.signals-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.symbols-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  width: 100%;
+}
+
+.symbol-card {
+  position: relative;
+  padding: 1rem;
+  border-radius: 10px;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.symbol-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+.symbol-header {
+  margin-bottom: 1rem;
+}
+
+.symbol-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.symbol-timestamp {
+  color: #9ca3af;
+  font-size: 0.625rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.symbol-name {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.symbol-price {
+  text-align: right;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.price-value {
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.price-change {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-top: 0.25rem;
+}
+
+.price-change.positive {
+  color: #10b981;
+}
+
+.price-change.negative {
+  color: #ef4444;
+}
+
+.signal-modes {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.signal-mode {
+  flex: 1;
+  text-align: center;
+}
+
+.mode-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.signal-badge {
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: center;
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.signal-description {
+  margin-bottom: 0.75rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.signal-timestamp {
+  color: #9ca3af;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+/* Tablet Responsive */
+@media (max-width: 1024px) {
+  .symbols-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.875rem;
+    width: 100%;
+  }
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .symbols-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    padding: 0 0.25rem;
+  }
+  
+  .symbol-card {
+    padding: 0.75rem;
+    border-radius: 8px;
+  }
+  
+  .symbol-header {
+    margin-bottom: 0.75rem;
+  }
+  
+  .symbol-info {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .symbol-timestamp {
+    top: 0.5rem;
+    right: 0.5rem;
+    font-size: 0.5rem;
+  }
+  
+  .symbol-name {
+    font-size: 1rem;
+    font-weight: 600;
+    flex: 1;
+  }
+  
+  .symbol-price {
+    text-align: right;
+    font-size: 1.125rem;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  .price-change {
+    display: inline;
+    font-size: 0.75rem;
+    margin-top: 0;
+  }
+  
+  .signal-modes {
+    flex-direction: row;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  
+  .signal-mode {
+    flex: 1;
+  }
+  
+  .mode-label {
+    font-size: 0.625rem;
+    margin-bottom: 0.25rem;
+  }
+  
+  .signal-badge {
+    padding: 0.375rem 0.5rem;
+    font-size: 0.75rem;
+    min-height: 2rem;
+  }
+  
+  .signal-description {
+    font-size: 0.75rem;
+    margin-bottom: 0.5rem;
+    line-height: 1.3;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .signal-timestamp {
+    font-size: 0.625rem;
+  }
+}
+
+/* Extra Small Mobile */
+@media (max-width: 480px) {
+  .symbols-grid {
+    gap: 0.5rem;
+    padding: 0 0.125rem;
+  }
+  
+  .symbol-card {
+    padding: 0.5rem;
+  }
+  
+  .symbol-timestamp {
+    top: 0.375rem;
+    right: 0.375rem;
+    font-size: 0.4375rem;
+  }
+  
+  .symbol-name {
+    font-size: 0.875rem;
+    flex: 1;
+  }
+  
+  .symbol-price {
+    font-size: 1rem;
+    text-align: right;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.375rem;
+  }
+  
+  .price-change {
+    display: inline;
+    font-size: 0.625rem;
+    margin-top: 0;
+  }
+  
+  .signal-modes {
+    gap: 0.25rem;
+  }
+  
+  .signal-badge {
+    padding: 0.25rem 0.375rem;
+    font-size: 0.625rem;
+    min-height: 1.75rem;
+  }
+  
+  .signal-description {
+    font-size: 0.625rem;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
+
+/* Loading State for Symbols */
+.loading-symbols {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #6b7280;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #e5e7eb;
+  border-top: 4px solid #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 1rem;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading-symbols p {
+  font-size: 1.125rem;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  color: #374151;
+}
+
+.loading-symbols small {
+  font-size: 0.875rem;
+  color: #6b7280;
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background-color: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 1rem 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #10b981);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+/* No Data State for Symbols */
+.no-data-symbols {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #6b7280;
+}
+
+.no-data-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.no-data-symbols p {
+  font-size: 1.125rem;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  color: #374151;
+}
+
+.no-data-symbols small {
+  font-size: 0.875rem;
+  color: #6b7280;
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.error-details {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background-color: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.error-item {
+  display: block;
+  color: #dc2626;
+  font-family: monospace;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+  word-break: break-all;
+}
+
+.success-details {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background-color: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 8px;
+  text-align: left;
+}
+
+/* Auto Check Container */
+.auto-check-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.auto-check-container select {
+  margin-right: 8px;
+}
+
+/* Mobile responsive for auto check container */
+@media (max-width: 768px) {
+  .auto-check-container {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.375rem;
+    width: 100%;
+    margin-top: 0.75rem;
+  }
+  
+  .auto-check-container select {
+    flex: 1;
+    min-width: 0;
+    margin-right: 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .auto-check-container {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+  }
+  
+  .auto-check-container select {
+    flex: 1;
+    min-width: 0;
+    margin-right: 6px;
+  }
+  
+  .auto-check-container button {
+    flex: 1;
+    white-space: nowrap;
+  }
+}
+
+.success-details small {
+  color: #059669;
+  font-size: 0.75rem;
 }

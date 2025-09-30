@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, BarChart3, Clock, Target, Wifi, WifiOff, Minus, ChevronUp, ChevronDown, Menu, X, History, Trash2 } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, BarChart3, Clock, Target, Wifi, WifiOff, Minus, ChevronUp, ChevronDown, Menu, X } from 'lucide-react';
 import './App.css';
 
 // Twelve Data API configuration
@@ -9,8 +9,10 @@ const TWELVE_DATA_BASE_URL = 'https://api.twelvedata.com';
 
 // API optimization settings
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
-const MIN_REQUEST_INTERVAL = 2000; // 2 seconds between requests
+const MIN_REQUEST_INTERVAL = 8000; // 8 seconds between requests (rate limit: 8 calls/minute)
 const MAX_CACHE_SIZE = 50; // Maximum cached responses
+const BATCH_SIZE = 2; // Process 2 symbols at a time
+const BATCH_DELAY = 10000; // 10 seconds between batches
 
 // Cache and rate limiting
 let apiCache = new Map();
@@ -146,6 +148,10 @@ const makeApiRequest = async (symbol, interval) => {
     const data = await response.json();
     
     if (data.status === 'error') {
+      // Handle rate limit error specifically
+      if (data.message && data.message.includes('API credits')) {
+        throw new Error(`RATE_LIMIT: ${data.message}`);
+      }
       throw new Error(`API Error: ${data.message}`);
     }
     
@@ -158,7 +164,7 @@ const makeApiRequest = async (symbol, interval) => {
       .sort((a, b) => new Date(a.datetime) - new Date(b.datetime))
       .map(item => ({
         time: new Date(item.datetime).toISOString(),
-        price: parseFloat(item.close),
+        price: parseFloat(item.close || item.price),
         high: parseFloat(item.high),
         low: parseFloat(item.low),
         open: parseFloat(item.open),
@@ -166,6 +172,7 @@ const makeApiRequest = async (symbol, interval) => {
       }));
     
   const result = {
+      success: true,
       data: chartData,
       lastUpdated: new Date().toISOString(),
       meta: {
@@ -573,10 +580,15 @@ const getTwelveDataData = async (symbol, interval = '1h') => {
     }
     
     // Use deduplication to avoid duplicate requests
-    return await deduplicateRequest(symbol, interval);
+    const result = await deduplicateRequest(symbol, interval);
+    return result;
   } catch (error) {
     console.error('Twelve Data API Error:', error);
-    throw error;
+    return {
+      success: false,
+      error: error.message,
+      data: null
+    };
   }
 };
 
@@ -600,10 +612,13 @@ const TwelveDataPage = ({ onBack }) => {
   const [notificationPermission, setNotificationPermission] = useState(false);
   const [lastModeCheck, setLastModeCheck] = useState(null);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
-  const [notificationHistory, setNotificationHistory] = useState([]);
-  const [showHistory, setShowHistory] = useState(false);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [currentNotification, setCurrentNotification] = useState(null);
+  const [allSymbolsData, setAllSymbolsData] = useState([]);
+  const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0 });
+  const [apiErrors, setApiErrors] = useState([]);
+  const [rateLimitWait, setRateLimitWait] = useState(0);
+  const [autoCheckInterval, setAutoCheckInterval] = useState('60min');
 
   // Recalculate signal when mode changes (if we have data)
   useEffect(() => {
@@ -613,196 +628,256 @@ const TwelveDataPage = ({ onBack }) => {
     }
   }, [selectedMode, chartData, notificationPermission]);
 
-  // Auto-check BTC every 10 minutes on the clock for signal changes
+  // Auto-check all symbols for signal changes
   useEffect(() => {
     if (!autoCheckEnabled) return;
 
-    const checkBTCModes = async () => {
+    const checkAllSymbols = async () => {
       try {
+        // Initialize progress
+        setLoadingProgress({ current: 0, total: symbols.length });
+        setApiErrors([]);
         
-        // Check both 1H and 4H intervals
-        const [result1h, result4h] = await Promise.all([
-          getTwelveDataData('BTC/USD', '60min'),
-          getTwelveDataData('BTC/USD', '4h')
-        ]);
-
-        if (result1h.success && result4h.success) {
-          const data1h = result1h.data;
-          const data4h = result4h.data;
-
-          // Calculate indicators for both timeframes
-          const dataWithEMA1h = calculateEMA(data1h, 20);
-          const dataWithRSI1h = calculateRSI(dataWithEMA1h, 14);
-          const dataWithEMA4h = calculateEMA(data4h, 20);
-          const dataWithRSI4h = calculateRSI(dataWithEMA4h, 14);
-
-          // Get latest data
-          const latest1h = dataWithRSI1h[dataWithRSI1h.length - 1];
-          const latest4h = dataWithRSI4h[dataWithRSI4h.length - 1];
+        // Update API calls count when starting auto check
+        const currentCount = getApiCallsCount();
+        setApiCalls(currentCount);
+        
+        // Process symbols in batches to avoid rate limiting
+        const processBatch = async (symbolBatch, batchIndex) => {
+          const results = [];
           
-
-          // Calculate actual signals for both timeframes and modes
-          const signal1hConservative = getSignal(
-            latest1h.close,
-            latest1h.ema20,
-            latest1h.rsi,
-            dataWithRSI1h[dataWithRSI1h.length - 2]?.close,
-            dataWithRSI1h[dataWithRSI1h.length - 2]?.ema20,
-            dataWithRSI1h,
-            'conservative'
-          );
-
-          const signal1hNormal = getSignal(
-            latest1h.close,
-            latest1h.ema20,
-            latest1h.rsi,
-            dataWithRSI1h[dataWithRSI1h.length - 2]?.close,
-            dataWithRSI1h[dataWithRSI1h.length - 2]?.ema20,
-            dataWithRSI1h,
-            'normal'
-          );
-
-          const signal4hConservative = getSignal(
-            latest4h.close,
-            latest4h.ema20,
-            latest4h.rsi,
-            dataWithRSI4h[dataWithRSI4h.length - 2]?.close,
-            dataWithRSI4h[dataWithRSI4h.length - 2]?.ema20,
-            dataWithRSI4h,
-            'conservative'
-          );
-
-          const signal4hNormal = getSignal(
-            latest4h.close,
-            latest4h.ema20,
-            latest4h.rsi,
-            dataWithRSI4h[dataWithRSI4h.length - 2]?.close,
-            dataWithRSI4h[dataWithRSI4h.length - 2]?.ema20,
-            dataWithRSI4h,
-            'normal'
-          );
-
-          // Check for signal changes
-          const currentSignalStatus = {
-            '1H': {
-              conservative: signal1hConservative,
-              normal: signal1hNormal
-            },
-            '4H': {
-              conservative: signal4hConservative,
-              normal: signal4hNormal
-            },
-            timestamp: new Date().toISOString()
-          };
-          
-
-          if (lastModeCheck) {
-            // Check for signal changes
-            const signal1hConservativeChanged = 
-              lastModeCheck['1H']?.conservative?.signal !== signal1hConservative.signal;
-            const signal1hNormalChanged = 
-              lastModeCheck['1H']?.normal?.signal !== signal1hNormal.signal;
-            const signal4hConservativeChanged = 
-              lastModeCheck['4H']?.conservative?.signal !== signal4hConservative.signal;
-            const signal4hNormalChanged = 
-              lastModeCheck['4H']?.normal?.signal !== signal4hNormal.signal;
-
-            if (signal1hConservativeChanged || signal1hNormalChanged || 
-                signal4hConservativeChanged || signal4hNormalChanged) {
-
-              // Send notifications if permission granted (only for STRONG BUY, BUY, STRONG SELL, SELL)
+          for (const symbol of symbolBatch) {
+            try {
+              const result = await getTwelveDataData(symbol.value, autoCheckInterval);
+              results.push({ symbol, result });
               
-              if (notificationPermission) {
-                if (signal1hConservativeChanged && !signal1hConservative.signal.includes('WEAK') && signal1hConservative.signal !== 'HOLD') {
-                  sendNotification(
-                    `BTC 1H Conservative Signal: ${signal1hConservative.signal}`,
-                    signal1hConservative.description
-                  );
-                }
-                if (signal1hNormalChanged && !signal1hNormal.signal.includes('WEAK') && signal1hNormal.signal !== 'HOLD') {
-                  sendNotification(
-                    `BTC 1H Normal Signal: ${signal1hNormal.signal}`,
-                    signal1hNormal.description
-                  );
-                }
-                if (signal4hConservativeChanged && !signal4hConservative.signal.includes('WEAK') && signal4hConservative.signal !== 'HOLD') {
-                  sendNotification(
-                    `BTC 4H Conservative Signal: ${signal4hConservative.signal}`,
-                    signal4hConservative.description
-                  );
-                }
-                if (signal4hNormalChanged && !signal4hNormal.signal.includes('WEAK') && signal4hNormal.signal !== 'HOLD') {
-                  sendNotification(
-                    `BTC 4H Normal Signal: ${signal4hNormal.signal}`,
-                    signal4hNormal.description
-                  );
+              // Update API calls count
+              if (result.success) {
+                const newCount = incrementApiCalls();
+                setApiCalls(newCount);
+              }
+              
+              // Update progress
+              setLoadingProgress(prev => ({ 
+                current: prev.current + 1, 
+                total: prev.total 
+              }));
+              
+              // Add delay between requests
+              if (symbolBatch.indexOf(symbol) < symbolBatch.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, MIN_REQUEST_INTERVAL));
+              }
+            } catch (error) {
+              console.error(`Error fetching data for ${symbol.value}:`, error);
+              
+              // Update progress even on error
+              setLoadingProgress(prev => ({ 
+                current: prev.current + 1, 
+                total: prev.total 
+              }));
+              
+              // Add error to list
+              setApiErrors(prev => [...prev, { symbol: symbol.value, error: error.message }]);
+              
+              // Handle rate limit error
+              if (error.message.includes('RATE_LIMIT')) {
+                console.warn(`Rate limit reached for ${symbol.value}, waiting 60 seconds...`);
+                setApiErrors(prev => [...prev, { 
+                  symbol: symbol.value, 
+                  error: 'Rate limit exceeded - waiting 60 seconds' 
+                }]);
+                
+                // Show countdown
+                setRateLimitWait(60);
+                const countdown = setInterval(() => {
+                  setRateLimitWait(prev => {
+                    if (prev <= 1) {
+                      clearInterval(countdown);
+                      return 0;
+                    }
+                    return prev - 1;
+                  });
+                }, 1000);
+                
+                await new Promise(resolve => setTimeout(resolve, 60000)); // Wait 1 minute
+                // Retry once
+                try {
+                  console.log(`Retrying ${symbol.value} after rate limit...`);
+                  const retryResult = await getTwelveDataData(symbol.value, '60min');
+                  results.push({ symbol, result: retryResult });
+                  
+                  // Update API calls count for retry
+                  if (retryResult.success) {
+                    const newCount = incrementApiCalls();
+                    setApiCalls(newCount);
+                  }
+                } catch (retryError) {
+                  console.error(`Retry failed for ${symbol.value}:`, retryError);
+                  results.push({ symbol, result: { success: false, error: retryError.message } });
                 }
               } else {
+                results.push({ symbol, result: { success: false, error: error.message } });
               }
             }
           }
+          
+          return results;
+        };
 
-          setLastModeCheck(currentSignalStatus);
+        // Split symbols into batches
+        const batches = [];
+        for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+          batches.push(symbols.slice(i, i + BATCH_SIZE));
         }
+
+        // Process each batch with delay
+        for (let i = 0; i < batches.length; i++) {
+          const batch = batches[i];
+          const batchResults = await processBatch(batch, i);
+          
+          // Process results for this batch
+          batchResults.forEach(({ symbol, result }) => {
+            if (!result.success) {
+              console.error(`Failed to process ${symbol.value}:`, result.error);
+            }
+            if (result.success) {
+              const data = result.data;
+
+              // Calculate indicators
+              const dataWithEMA = calculateEMA(data, 20);
+              const dataWithRSI = calculateRSI(dataWithEMA, 14);
+
+              // Get latest data
+              const latest = dataWithRSI[dataWithRSI.length - 1];
+              const previous = dataWithRSI[dataWithRSI.length - 2];
+
+
+              if (latest && previous) {
+                // Calculate signals for both modes
+                const signalConservative = getSignal(
+                  latest.price,
+                  latest.ema20,
+                  latest.rsi,
+                  previous.price,
+                  previous.ema20,
+                  dataWithRSI,
+                  'conservative'
+                );
+
+                const signalNormal = getSignal(
+                  latest.price,
+                  latest.ema20,
+                  latest.rsi,
+                  previous.price,
+                  previous.ema20,
+                  dataWithRSI,
+                  'normal'
+                );
+
+                // Check for signal changes
+                const currentSignalStatus = {
+                  symbol: symbol.value,
+                  conservative: signalConservative,
+                  normal: signalNormal,
+                  timestamp: new Date().toISOString()
+                };
+
+                if (lastModeCheck) {
+                  const previousSignal = lastModeCheck.find(s => s.symbol === symbol.value);
+                  
+                  if (previousSignal) {
+                    const conservativeChanged = 
+                      previousSignal.conservative?.signal !== signalConservative.signal;
+                    const normalChanged = 
+                      previousSignal.normal?.signal !== signalNormal.signal;
+
+                    if (conservativeChanged || normalChanged) {
+                      // Send notifications for significant signals only
+                      if (notificationPermission) {
+                        if (conservativeChanged && !signalConservative.signal.includes('WEAK') && signalConservative.signal !== 'HOLD') {
+                          sendNotification(
+                            `${symbol.label} 1H Conservative Signal: ${signalConservative.signal}`,
+                            signalConservative.description
+                          );
+                        }
+                        if (normalChanged && !signalNormal.signal.includes('WEAK') && signalNormal.signal !== 'HOLD') {
+                          sendNotification(
+                            `${symbol.label} 1H Normal Signal: ${signalNormal.signal}`,
+                            signalNormal.description
+                          );
+                        }
+                      }
+                    }
+                  }
+                }
+
+                // Update signal status
+                setLastModeCheck(prev => {
+                  const updated = prev ? [...prev] : [];
+                  const existingIndex = updated.findIndex(s => s.symbol === symbol.value);
+                  
+                  if (existingIndex >= 0) {
+                    updated[existingIndex] = currentSignalStatus;
+                  } else {
+                    updated.push(currentSignalStatus);
+                  }
+                  
+                  return updated;
+                });
+
+                // Update all symbols data for display
+                setAllSymbolsData(prev => {
+                  const updated = prev ? [...prev] : [];
+                  const existingIndex = updated.findIndex(s => s.symbol === symbol.value);
+                  
+                  const symbolData = {
+                    symbol: symbol.value,
+                    label: symbol.label,
+                    color: symbol.color,
+                    price: latest.price || 0,
+                    change: (latest.price || 0) - (previous.price || 0),
+                    changePercent: previous.price ? (((latest.price || 0) - (previous.price || 0)) / (previous.price || 1)) * 100 : 0,
+                    conservative: signalConservative,
+                    normal: signalNormal,
+                    timestamp: new Date().toISOString()
+                  };
+                  
+                  if (existingIndex >= 0) {
+                    updated[existingIndex] = symbolData;
+                  } else {
+                    updated.push(symbolData);
+                  }
+                  
+                  return updated;
+                });
+              }
+            }
+          });
+          
+          // Add delay between batches (except for the last batch)
+          if (i < batches.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+          }
+        }
+        
+        // Update final API calls count
+        const finalCount = getApiCallsCount();
+        setApiCalls(finalCount);
       } catch (error) {
         console.error('Auto-check error:', error);
       }
     };
 
-    // Calculate time until next 10-minute mark
-    const getTimeUntilNextCheck = () => {
-      const now = new Date();
-      const minutes = now.getMinutes();
-      const seconds = now.getSeconds();
-      const milliseconds = now.getMilliseconds();
-      
-      // Find next 10-minute mark (00, 10, 20, 30, 40, 50)
-      const nextMinute = Math.ceil(minutes / 10) * 10;
-      const nextCheck = new Date(now);
-      nextCheck.setMinutes(nextMinute, 0, 0);
-      
-      // If we're past 50 minutes, go to next hour
-      if (nextMinute >= 60) {
-        nextCheck.setHours(nextCheck.getHours() + 1);
-        nextCheck.setMinutes(0, 0, 0);
-      }
-      
-      return nextCheck.getTime() - now.getTime();
-    };
-
     // Run immediately
-    checkBTCModes();
+    checkAllSymbols();
 
-    // Set up interval to run every 10 minutes on the clock
-    const scheduleNextCheck = () => {
-      const timeUntilNext = getTimeUntilNextCheck();
-      
-      const timeoutId = setTimeout(() => {
-        checkBTCModes();
-        // Schedule the next check
-        scheduleNextCheck();
-      }, timeUntilNext);
-      
-      return timeoutId;
-    };
+    // Set up interval to run every hour
+    const intervalId = setInterval(checkAllSymbols, 60 * 60 * 1000); // 1 hour
 
-    const timeoutId = scheduleNextCheck();
-
-    return () => clearTimeout(timeoutId);
-  }, [autoCheckEnabled, lastModeCheck]);
+    return () => clearInterval(intervalId);
+  }, [autoCheckEnabled, autoCheckInterval]);
 
 
-  // Load notification history from localStorage
-  useEffect(() => {
-    const savedHistory = localStorage.getItem('analike_notification_history');
-    if (savedHistory) {
-      try {
-        setNotificationHistory(JSON.parse(savedHistory));
-      } catch (error) {
-        console.error('Error loading notification history:', error);
-      }
-    }
-  }, []);
 
   // Request notification permission
   useEffect(() => {
@@ -811,31 +886,12 @@ const TwelveDataPage = ({ onBack }) => {
       const currentPermission = Notification.permission;
       setNotificationPermission(currentPermission === 'granted');
       
-      if (currentPermission === 'granted') {
-        // Auto-enable auto check when notifications are already granted
-        setAutoCheckEnabled(true);
-      }
+      // Auto Check starts as OFF by default
     }
   }, []);
 
   // Send notification function
   const sendNotification = (title, body) => {
-    
-    // Add to history
-    const notification = {
-      id: Date.now(),
-      title,
-      body,
-      timestamp: new Date().toISOString(),
-      type: 'signal_change'
-    };
-    
-    setNotificationHistory(prev => {
-      const newHistory = [notification, ...prev].slice(0, 50); // Keep last 50 notifications
-      // Save to localStorage
-      localStorage.setItem('analike_notification_history', JSON.stringify(newHistory));
-      return newHistory;
-    });
 
     // Check if mobile device
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -862,7 +918,6 @@ const TwelveDataPage = ({ onBack }) => {
   };
 
   const symbols = [
-    { value: 'AAPL', label: 'Apple (AAPL)', color: '#0071e3' },
     { value: 'GOOGL', label: 'Google (GOOGL)', color: '#4285f4' },
     { value: 'TSLA', label: 'Tesla (TSLA)', color: '#e31937' },
     { value: 'ASML', label: 'ASML (ASML)', color: '#00a4ef' },
@@ -870,8 +925,7 @@ const TwelveDataPage = ({ onBack }) => {
     { value: 'NVDA', label: 'NVIDIA (NVDA)', color: '#76b900' },
     { value: 'AMD', label: 'AMD (AMD)', color: '#ed1c24' },
     { value: 'BTC/USD', label: 'Bitcoin (BTC)', color: '#f7931a' },
-    { value: 'XAU/USD', label: 'Gold (XAU/USD)', color: '#ffd700' },
-    { value: 'QQQ', label: 'NASDAQ 100 (QQQ)', color: '#8b5cf6' }
+    { value: 'XAU/USD', label: 'Gold (XAU/USD)', color: '#ffd700' }
   ];
 
   const intervals = [
@@ -1171,24 +1225,6 @@ const TwelveDataPage = ({ onBack }) => {
                 <span className="status-dot online"></span>
                 <span>API: {apiCalls}/800 calls</span>
               </div>
-              <div className="twelve-data-status-item">
-                <span className="status-dot" style={{ backgroundColor: hasData ? '#10b981' : '#6b7280' }}></span>
-                <span>{hasData ? 'Data Ready' : 'No Data'}</span>
-              </div>
-              <div className="twelve-data-status-item">
-                <span className="status-dot" style={{ backgroundColor: '#8b5cf6' }}></span>
-                <span>Twelve Data API</span>
-            </div>
-              <button 
-                onClick={() => {
-                  const newCount = resetApiCalls();
-                  setApiCalls(newCount);
-                }}
-                className="reset-api-button"
-                title="Reset API calls for today"
-              >
-                Reset
-              </button>
           </div>
           </div>
           <div className="mode-badge" style={{
@@ -1205,38 +1241,6 @@ const TwelveDataPage = ({ onBack }) => {
             {selectedMode === 'conservative' ? '🛡️' : '⚡'} {analysisModes.find(m => m.value === selectedMode)?.label}: {analysisModes.find(m => m.value === selectedMode)?.description}
           </div>
           
-          {autoCheckEnabled && (
-            <div className="auto-check-badge" style={{
-              display: 'inline-block',
-              backgroundColor: 'rgba(16, 185, 129, 0.1)',
-              border: '1px solid rgba(16, 185, 129, 0.3)',
-              borderRadius: '12px',
-              padding: '4px 8px',
-              fontSize: '0.7rem',
-              fontWeight: '600',
-              color: '#10b981',
-              margin: '8px'
-            }}>
-              🔔 Auto Check: BTC 1H & 4H signal changes every 10min
-              {notificationPermission ? ' ✅ Notifications ON' : ' 📝 Console Logs Only'}
-            </div>
-          )}
-          
-          {notificationPermission && (
-            <div className="notification-badge" style={{
-              display: 'inline-block',
-              backgroundColor: 'rgba(59, 130, 246, 0.1)',
-              border: '1px solid rgba(59, 130, 246, 0.3)',
-              borderRadius: '12px',
-              padding: '4px 8px',
-              fontSize: '0.7rem',
-              fontWeight: '600',
-              color: '#3b82f6',
-              margin: '8px'
-            }}>
-              🔔 Notifications: Signal changes for both modes
-            </div>
-          )}
           
           
           
@@ -1285,55 +1289,58 @@ const TwelveDataPage = ({ onBack }) => {
               >
                 {loading ? 'Loading...' : apiCalls >= 800 ? 'Limit Reached' : 'Get Data'}
               </button>
+            </div>
+            
+            <div className="auto-check-container">
+              <select
+                value={autoCheckInterval}
+                onChange={(e) => setAutoCheckInterval(e.target.value)}
+                className="control-select"
+                disabled={autoCheckEnabled}
+                style={{
+                  opacity: autoCheckEnabled ? 0.6 : 1,
+                  cursor: autoCheckEnabled ? 'not-allowed' : 'pointer'
+                }}
+              >
+                <option value="60min">1H</option>
+                <option value="4h">4H</option>
+              </select>
+
               <button 
-                onClick={() => {
-                  if (!autoCheckEnabled) {
-                    // Enable auto check immediately
-                    setAutoCheckEnabled(true);
-                    
-                    // Try to request notification permission (optional)
-                    if (!notificationPermission && 'Notification' in window) {
-                      Notification.requestPermission().then(permission => {
-                        setNotificationPermission(permission === 'granted');
-                        if (permission === 'granted') {
-                          // Show test notification
-                          sendNotification('Auto Check Enabled', 'BTC signal monitoring is now active!');
-                        } else {
-                        }
-                      }).catch(error => {
-                        console.error('Error requesting notification permission:', error);
-                      });
-                    } else if (!('Notification' in window)) {
-                    }
-                  } else {
-                    // Disable auto check
-                    setAutoCheckEnabled(false);
+              onClick={() => {
+                if (!autoCheckEnabled) {
+                  // Enable auto check immediately
+                  setAutoCheckEnabled(true);
+                  
+                  // Try to request notification permission (optional)
+                  if (!notificationPermission && 'Notification' in window) {
+                    Notification.requestPermission().then(permission => {
+                      setNotificationPermission(permission === 'granted');
+                      if (permission === 'granted') {
+                        // Show test notification
+                        sendNotification('Auto Check Enabled', 'BTC signal monitoring is now active!');
+                      } else {
+                      }
+                    }).catch(error => {
+                      console.error('Error requesting notification permission:', error);
+                    });
+                  } else if (!('Notification' in window)) {
                   }
-                }}
-                className={`search-button ${autoCheckEnabled ? 'active' : ''}`}
-                style={{
-                  backgroundColor: autoCheckEnabled ? '#10b981' : 'rgba(16, 185, 129, 0.1)',
-                  borderColor: autoCheckEnabled ? '#10b981' : '#10b981',
-                  color: autoCheckEnabled ? 'white' : '#10b981',
-                  cursor: 'pointer'
-                }}
-              >
-                {autoCheckEnabled ? '🟢 Auto Check ON' : '⚪ Auto Check OFF'}
-              </button>
-              
-              <button 
-                onClick={() => setShowHistory(!showHistory)}
-                className="search-button"
-                style={{
-                  backgroundColor: showHistory ? '#8b5cf6' : 'rgba(139, 92, 246, 0.1)',
-                  borderColor: '#8b5cf6',
-                  color: showHistory ? 'white' : '#8b5cf6',
-                  cursor: 'pointer'
-                }}
-              >
-                <History size={16} style={{ marginRight: '4px' }} />
-                History ({notificationHistory.length})
-              </button>
+                } else {
+                  // Disable auto check
+                  setAutoCheckEnabled(false);
+                }
+              }}
+              className={`search-button ${autoCheckEnabled ? 'active' : ''}`}
+              style={{
+                backgroundColor: autoCheckEnabled ? '#10b981' : 'rgba(16, 185, 129, 0.1)',
+                borderColor: autoCheckEnabled ? '#10b981' : '#10b981',
+                color: autoCheckEnabled ? 'white' : '#10b981',
+                cursor: 'pointer'
+              }}
+            >
+              {autoCheckEnabled ? '🟢 Auto Check ON' : '⚪ Auto Check OFF'}
+            </button>
             </div>
            
           {/* </div> */}
@@ -1350,51 +1357,115 @@ const TwelveDataPage = ({ onBack }) => {
           </div>
         )}
 
-        {showHistory && (
-          <div className="notification-history glass-card">
-            <div className="history-header">
-              <div className="history-actions">
-                <button 
-                  onClick={() => {
-                    setNotificationHistory([]);
-                    localStorage.removeItem('analike_notification_history');
-                  }}
-                  className="clear-history-btn"
-                  title="Clear History"
-                >
-                  <Trash2 size={16} />
-                </button>
-                <button 
-                  onClick={() => setShowHistory(false)}
-                  className="close-history-btn"
-                  title="Close"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-            
-            <div className="history-content">
-              {notificationHistory.length === 0 ? (
-                <div className="no-history">
-                  <History size={48} />
-                  <p>No notifications yet</p>
-                  <small>Signal changes will appear here</small>
+        {/* All Symbols Signal Cards */}
+        {autoCheckEnabled && (
+          <div className="symbols-signals-container">
+            <h2 className="signals-title">All Symbols Signals (1H)</h2>
+            <div className="symbols-grid">
+              {loadingProgress.current < loadingProgress.total ? (
+                <div className="loading-symbols">
+                  <div className="loading-spinner"></div>
+                  <p>Loading signals for all symbols...</p>
+                  <div className="progress-bar">
+                    <div 
+                      className="progress-fill" 
+                      style={{ 
+                        width: `${(loadingProgress.current / loadingProgress.total) * 100}%` 
+                      }}
+                    ></div>
+                  </div>
+                  <small>
+                    {loadingProgress.current} of {loadingProgress.total} symbols loaded
+                    {loadingProgress.total > 0 && ` (${Math.round((loadingProgress.current / loadingProgress.total) * 100)}%)`}
+                  </small>
+                  <small>Rate limited to 8 calls/minute (2 symbols per batch, 8s delay)</small>
+                  {rateLimitWait > 0 && (
+                    <small style={{ color: '#ef4444', fontWeight: 'bold' }}>
+                      ⏳ Rate limit: Waiting {rateLimitWait}s before retry...
+                    </small>
+                  )}
+                </div>
+              ) : allSymbolsData.length === 0 ? (
+                <div className="no-data-symbols">
+                  <div className="no-data-icon">📊</div>
+                  <p>No signal data available</p>
+                  <small>Progress: {loadingProgress.current} of {loadingProgress.total} symbols processed</small>
+                  <small>Successfully loaded: {allSymbolsData.length} symbols</small>
+                  {allSymbolsData.length > 0 && (
+                    <div className="success-details">
+                      <small>Loaded symbols: {allSymbolsData.map(s => s.symbol).join(', ')}</small>
+                    </div>
+                  )}
+                  {apiErrors.length > 0 && (
+                    <div className="error-details">
+                      <small>Failed symbols ({apiErrors.length}): {apiErrors.map(e => e.symbol).join(', ')}</small>
+                      {apiErrors.slice(0, 3).map((error, index) => (
+                        <small key={index} className="error-item">
+                          {error.symbol}: {error.error.substring(0, 50)}...
+                        </small>
+                      ))}
+                      {apiErrors.length > 3 && (
+                        <small>... and {apiErrors.length - 3} more errors</small>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="history-list">
-                  {notificationHistory.map((notification) => (
-                    <div key={notification.id} className="history-item">
-                      <div className="history-item-header">
-                        <span className="history-title">{notification.title}</span>
-                        <span className="history-time">
-                          {new Date(notification.timestamp).toLocaleString()}
+                allSymbolsData.map((symbolData) => (
+                <div key={symbolData.symbol} className="symbol-card glass-card">
+                  <div className="symbol-header">
+                    <div className="symbol-info">
+                      <h3 className="symbol-name" style={{ color: symbolData.color }}>
+                        {symbolData.label}
+                      </h3>
+                      <div className="symbol-price">
+                        <span className="price-value">
+                          ${symbolData.price ? symbolData.price.toFixed(2) : 'N/A'}
+                        </span>
+                        <span className={`price-change ${(symbolData.change || 0) >= 0 ? 'positive' : 'negative'}`}>
+                          {(symbolData.change || 0) >= 0 ? '+' : ''}{(symbolData.change || 0).toFixed(2)} 
+                          ({(symbolData.changePercent || 0) >= 0 ? '+' : ''}{(symbolData.changePercent || 0).toFixed(2)}%)
                         </span>
                       </div>
-                      <div className="history-body">{notification.body}</div>
                     </div>
-                  ))}
+                  </div>
+                  
+                  <div className="signal-modes">
+                    <div className="signal-mode">
+                      <div className="mode-label">Conservative</div>
+                      <div 
+                        className="signal-badge"
+                        style={{ 
+                          backgroundColor: symbolData.conservative.color,
+                          color: 'white'
+                        }}
+                      >
+                        {React.createElement(symbolData.conservative.icon, { size: 16 })} {symbolData.conservative.signal}
+                      </div>
+                    </div>
+                    
+                    <div className="signal-mode">
+                      <div className="mode-label">Normal</div>
+                      <div 
+                        className="signal-badge"
+                        style={{ 
+                          backgroundColor: symbolData.normal.color,
+                          color: 'white'
+                        }}
+                      >
+                        {React.createElement(symbolData.normal.icon, { size: 16 })} {symbolData.normal.signal}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="signal-description">
+                    <small>{symbolData.conservative.description}</small>
+                    <div className="symbol-timestamp">
+                      <small>Updated: {new Date(symbolData.timestamp).toLocaleTimeString()}</small>
+                    </div>
+                  </div>
                 </div>
+                ))
               )}
             </div>
           </div>
@@ -1467,11 +1538,6 @@ const TwelveDataPage = ({ onBack }) => {
                   </button>
                 </div>
               )}
-              <div className="debug-info">
-                <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '16px' }}>
-                  Twelve Data API - Check console for response details
-                </p>
-              </div>
             </div>
           </div>
         )}
@@ -1583,7 +1649,7 @@ const TwelveDataPage = ({ onBack }) => {
                     (signal.description.includes('Divergence') ? '🔴 Strong Sell - RSI >75 + Price Down + Divergence' : '🔴 Strong Sell - Price+EMA Down + Below EMA') :
                    signal.signal === 'SELL' ? '🔴 Sell - RSI >75 + Price Down + Above EMA' :
                    signal.signal === 'WEAK SELL' ? '🟠 Weak Sell - RSI >75 + Price Down + Below EMA' :
-                   signal.signal === 'HOLD' ? '⚪ Hold - Not Clear' : '⚪ No Data'}
+                   signal.signal === 'HOLD' ? '⚪ Hold - Not Clear' : '⚪ No Signal'}
                 </div>
               )}
             </div>
