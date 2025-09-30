@@ -25,7 +25,6 @@ const getCachedData = (symbol, interval) => {
   const cached = apiCache.get(key);
   
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    console.log('Using cached data for:', key);
     return cached.data;
   }
   
@@ -46,7 +45,6 @@ const setCachedData = (symbol, interval, data) => {
     timestamp: Date.now()
   });
   
-  console.log('Cached data for:', key);
 };
 
 // API calls management functions
@@ -77,7 +75,6 @@ const resetApiCalls = () => {
 
 const clearCache = () => {
   apiCache.clear();
-  console.log('Cache cleared');
 };
 
 // Request deduplication
@@ -87,7 +84,6 @@ const deduplicateRequest = async (symbol, interval) => {
   // Check if request is already in progress
   const existingRequest = requestQueue.find(req => req.key === key);
   if (existingRequest) {
-    console.log('Request already in progress, waiting...');
     return existingRequest.promise;
   }
   
@@ -115,7 +111,6 @@ const waitForRateLimit = async () => {
   
   if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
     const waitTime = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
-    console.log(`Rate limiting: waiting ${waitTime}ms`);
     await new Promise(resolve => setTimeout(resolve, waitTime));
   }
   
@@ -141,7 +136,6 @@ const makeApiRequest = async (symbol, interval) => {
     const twelveDataInterval = intervalMap[interval] || '1h';
     const url = `${TWELVE_DATA_BASE_URL}/time_series?symbol=${symbol}&interval=${twelveDataInterval}&apikey=${TWELVE_DATA_API_KEY}&outputsize=100&format=JSON`;
     
-  console.log('Making API request for:', symbol, interval);
     
     const response = await fetch(url);
     
@@ -575,12 +569,10 @@ const getTwelveDataData = async (symbol, interval = '1h') => {
     // Check cache first
     const cachedData = getCachedData(symbol, interval);
     if (cachedData) {
-      console.log('Returning cached data for:', symbol, interval);
       return cachedData;
     }
     
     // Use deduplication to avoid duplicate requests
-    console.log('Fetching fresh data for:', symbol, interval);
     return await deduplicateRequest(symbol, interval);
   } catch (error) {
     console.error('Twelve Data API Error:', error);
@@ -618,17 +610,15 @@ const TwelveDataPage = ({ onBack }) => {
     if (chartData.length > 0) {
       // Force re-render by updating trigger state
       setModeUpdateTrigger(prev => prev + 1);
-      console.log('Mode changed to:', selectedMode, '- Recalculating signal with existing data');
     }
   }, [selectedMode, chartData, notificationPermission]);
 
-  // Auto-check BTC every 15 minutes for signal changes
+  // Auto-check BTC every 10 minutes on the clock for signal changes
   useEffect(() => {
     if (!autoCheckEnabled) return;
 
     const checkBTCModes = async () => {
       try {
-        console.log('Auto-checking BTC mode conditions...');
         
         // Check both 1H and 4H intervals
         const [result1h, result4h] = await Promise.all([
@@ -650,10 +640,6 @@ const TwelveDataPage = ({ onBack }) => {
           const latest1h = dataWithRSI1h[dataWithRSI1h.length - 1];
           const latest4h = dataWithRSI4h[dataWithRSI4h.length - 1];
           
-          console.log('📊 Latest data:', {
-            '1H': { close: latest1h.close, rsi: latest1h.rsi, ema: latest1h.ema20 },
-            '4H': { close: latest4h.close, rsi: latest4h.rsi, ema: latest4h.ema20 }
-          });
 
           // Calculate actual signals for both timeframes and modes
           const signal1hConservative = getSignal(
@@ -709,12 +695,6 @@ const TwelveDataPage = ({ onBack }) => {
             timestamp: new Date().toISOString()
           };
           
-          console.log('📈 Calculated signals:', {
-            '1H Conservative': signal1hConservative.signal,
-            '1H Normal': signal1hNormal.signal,
-            '4H Conservative': signal4hConservative.signal,
-            '4H Normal': signal4hNormal.signal
-          });
 
           if (lastModeCheck) {
             // Check for signal changes
@@ -729,62 +709,35 @@ const TwelveDataPage = ({ onBack }) => {
 
             if (signal1hConservativeChanged || signal1hNormalChanged || 
                 signal4hConservativeChanged || signal4hNormalChanged) {
-              console.log('Signal change detected:', currentSignalStatus);
-
-              // Always log signal changes to console
-              if (signal1hConservativeChanged) {
-                console.log(`BTC 1H Conservative Signal: ${signal1hConservative.signal} - ${signal1hConservative.description}`);
-              }
-              if (signal1hNormalChanged) {
-                console.log(`BTC 1H Normal Signal: ${signal1hNormal.signal} - ${signal1hNormal.description}`);
-              }
-              if (signal4hConservativeChanged) {
-                console.log(`BTC 4H Conservative Signal: ${signal4hConservative.signal} - ${signal4hConservative.description}`);
-              }
-              if (signal4hNormalChanged) {
-                console.log(`BTC 4H Normal Signal: ${signal4hNormal.signal} - ${signal4hNormal.description}`);
-              }
 
               // Send notifications if permission granted (only for STRONG BUY, BUY, STRONG SELL, SELL)
-              console.log('🔔 Notification check:', { 
-                notificationPermission, 
-                signal1hConservative: { signal: signal1hConservative.signal, changed: signal1hConservativeChanged },
-                signal1hNormal: { signal: signal1hNormal.signal, changed: signal1hNormalChanged },
-                signal4hConservative: { signal: signal4hConservative.signal, changed: signal4hConservativeChanged },
-                signal4hNormal: { signal: signal4hNormal.signal, changed: signal4hNormalChanged }
-              });
               
               if (notificationPermission) {
                 if (signal1hConservativeChanged && !signal1hConservative.signal.includes('WEAK') && signal1hConservative.signal !== 'HOLD') {
-                  console.log('🔔 Sending 1H Conservative notification:', signal1hConservative.signal);
                   sendNotification(
                     `BTC 1H Conservative Signal: ${signal1hConservative.signal}`,
                     signal1hConservative.description
                   );
                 }
                 if (signal1hNormalChanged && !signal1hNormal.signal.includes('WEAK') && signal1hNormal.signal !== 'HOLD') {
-                  console.log('🔔 Sending 1H Normal notification:', signal1hNormal.signal);
                   sendNotification(
                     `BTC 1H Normal Signal: ${signal1hNormal.signal}`,
                     signal1hNormal.description
                   );
                 }
                 if (signal4hConservativeChanged && !signal4hConservative.signal.includes('WEAK') && signal4hConservative.signal !== 'HOLD') {
-                  console.log('🔔 Sending 4H Conservative notification:', signal4hConservative.signal);
                   sendNotification(
                     `BTC 4H Conservative Signal: ${signal4hConservative.signal}`,
                     signal4hConservative.description
                   );
                 }
                 if (signal4hNormalChanged && !signal4hNormal.signal.includes('WEAK') && signal4hNormal.signal !== 'HOLD') {
-                  console.log('🔔 Sending 4H Normal notification:', signal4hNormal.signal);
                   sendNotification(
                     `BTC 4H Normal Signal: ${signal4hNormal.signal}`,
                     signal4hNormal.description
                   );
                 }
               } else {
-                console.log('❌ No notification permission - notifications disabled');
               }
             }
           }
@@ -796,13 +749,46 @@ const TwelveDataPage = ({ onBack }) => {
       }
     };
 
+    // Calculate time until next 10-minute mark
+    const getTimeUntilNextCheck = () => {
+      const now = new Date();
+      const minutes = now.getMinutes();
+      const seconds = now.getSeconds();
+      const milliseconds = now.getMilliseconds();
+      
+      // Find next 10-minute mark (00, 10, 20, 30, 40, 50)
+      const nextMinute = Math.ceil(minutes / 10) * 10;
+      const nextCheck = new Date(now);
+      nextCheck.setMinutes(nextMinute, 0, 0);
+      
+      // If we're past 50 minutes, go to next hour
+      if (nextMinute >= 60) {
+        nextCheck.setHours(nextCheck.getHours() + 1);
+        nextCheck.setMinutes(0, 0, 0);
+      }
+      
+      return nextCheck.getTime() - now.getTime();
+    };
+
     // Run immediately
     checkBTCModes();
 
-    // Then run every 15 minutes
-    const interval = setInterval(checkBTCModes, 15 * 60 * 1000);
+    // Set up interval to run every 10 minutes on the clock
+    const scheduleNextCheck = () => {
+      const timeUntilNext = getTimeUntilNextCheck();
+      
+      const timeoutId = setTimeout(() => {
+        checkBTCModes();
+        // Schedule the next check
+        scheduleNextCheck();
+      }, timeUntilNext);
+      
+      return timeoutId;
+    };
 
-    return () => clearInterval(interval);
+    const timeoutId = scheduleNextCheck();
+
+    return () => clearTimeout(timeoutId);
   }, [autoCheckEnabled, lastModeCheck]);
 
 
@@ -834,7 +820,6 @@ const TwelveDataPage = ({ onBack }) => {
 
   // Send notification function
   const sendNotification = (title, body) => {
-    console.log('🔔 sendNotification called:', { title, body });
     
     // Add to history
     const notification = {
@@ -854,17 +839,13 @@ const TwelveDataPage = ({ onBack }) => {
 
     // Check if mobile device
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    console.log('📱 Device check:', { isMobile, userAgent: navigator.userAgent });
-    console.log('🔔 Notification permission:', { notificationPermission, hasNotification: 'Notification' in window });
     
     if (isMobile) {
       // Show modal notification for mobile
-      console.log('📱 Showing mobile modal for:', title);
       setCurrentNotification(notification);
       setShowNotificationModal(true);
     } else if (notificationPermission && 'Notification' in window) {
       // Use browser notification for desktop
-      console.log('🖥️ Showing browser notification for:', title);
       new Notification(title, {
         body: body,
         icon: '/favicon.svg',
@@ -872,7 +853,6 @@ const TwelveDataPage = ({ onBack }) => {
         tag: 'analike-notification' // Prevent duplicate notifications
       });
     } else {
-      console.log('❌ No notification method available');
     }
   };
 
@@ -890,7 +870,7 @@ const TwelveDataPage = ({ onBack }) => {
     { value: 'NVDA', label: 'NVIDIA (NVDA)', color: '#76b900' },
     { value: 'AMD', label: 'AMD (AMD)', color: '#ed1c24' },
     { value: 'BTC/USD', label: 'Bitcoin (BTC)', color: '#f7931a' },
-    { value: 'GOLD', label: 'Gold (GOLD)', color: '#ffd700' },
+    { value: 'XAU/USD', label: 'Gold (XAU/USD)', color: '#ffd700' },
     { value: 'QQQ', label: 'NASDAQ 100 (QQQ)', color: '#8b5cf6' }
   ];
 
@@ -943,9 +923,6 @@ const TwelveDataPage = ({ onBack }) => {
       }
       
       // Test API key first
-      console.log('Testing API key:', TWELVE_DATA_API_KEY);
-      console.log('Selected symbol:', selectedSymbol);
-      console.log('Selected interval:', selectedInterval);
       
       // Fetch data from Twelve Data
       const result = await getTwelveDataData(selectedSymbol, selectedInterval);
@@ -1240,7 +1217,7 @@ const TwelveDataPage = ({ onBack }) => {
               color: '#10b981',
               margin: '8px'
             }}>
-              🔔 Auto Check: BTC 1H & 4H signal changes every 15min
+              🔔 Auto Check: BTC 1H & 4H signal changes every 10min
               {notificationPermission ? ' ✅ Notifications ON' : ' 📝 Console Logs Only'}
             </div>
           )}
@@ -1316,22 +1293,17 @@ const TwelveDataPage = ({ onBack }) => {
                     
                     // Try to request notification permission (optional)
                     if (!notificationPermission && 'Notification' in window) {
-                      console.log('Requesting notification permission...');
                       Notification.requestPermission().then(permission => {
-                        console.log('Notification permission:', permission);
                         setNotificationPermission(permission === 'granted');
                         if (permission === 'granted') {
                           // Show test notification
                           sendNotification('Auto Check Enabled', 'BTC signal monitoring is now active!');
                         } else {
-                          console.log('Notifications denied. Auto Check will work without notifications.');
                         }
                       }).catch(error => {
                         console.error('Error requesting notification permission:', error);
-                        console.log('Auto Check will work without notifications.');
                       });
                     } else if (!('Notification' in window)) {
-                      console.log('This browser does not support notifications. Auto Check will work without notifications.');
                     }
                   } else {
                     // Disable auto check
